@@ -78,7 +78,6 @@ wibba_modeling_comp <- wibba_modeling_comp %>%
 
 
 
-
 ### -- FILTERED PAD --- ###
 # Calculate PA/block w/ no dissolving (allows for land owner filtering)
 

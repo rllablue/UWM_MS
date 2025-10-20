@@ -22,7 +22,7 @@ library(corrplot)
 
 ## -- MODELING COVARIATE DF --- ###
 
-# Create new summary df with only covariate values to be used in modeling 
+# Create new df with only covariate values to be used in modeling 
 
 wibba_modeling_comp <- wibba_summary_comp %>%
   dplyr::select(atlas_block)
@@ -49,10 +49,10 @@ crop_mask_buffered_bbox <- function(raster_obj, polygon_sf, buffer_dist = 1000) 
 
 ### --- COVER DIFFERENCE --- ###
 
-# Land cover change between two years (2015, 1995) overlapping with Atlase periods
-
+# Land cover change between two years (2015, 1995) overlapping with Atlas periods
 
 ### SET-UP ###
+
 # Load NLCD rasters (crs custom AEA)
 nlcd_1995_raw <- rast("data/maps/nlcd/NLCD_LndCov_1995.tif")
 nlcd_2015_raw <- rast("data/maps/nlcd/NLCD_LndCov_2015.tif")
@@ -78,6 +78,7 @@ crs(wi_nlcd_2015_rast) <- crs(wi_nlcd_2015_crs3071)
 
 
 ### EXTRACTION ###
+
 # Function to extract land cover per block
 Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
   
@@ -193,7 +194,7 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
       )
     )
   
-  # Return all three dataframes
+  # Return all three dfs
   return(list(
     landcover_early = land_early,
     landcover_late  = land_late,
@@ -202,7 +203,9 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
   ))
 }
 
-# Apply function
+
+## APPLY ##
+
 land9515_all <- Extract_landcover_diff(
   raster_early = wi_nlcd_1995_rast,
   raster_late  = wi_nlcd_2015_rast,
@@ -219,7 +222,10 @@ wi_land9515_diff <- land9515_all$landcover_diff
 
 
 ### --- SINGLE REFERENCE YEAR --- ###
+
 # Land cover for intermediate year (2008) between Atlas periods
+
+## SET UP ##
 
 # Load NLCD raster (crs custom AEA)
 nlcd_2008_raw <- rast("data/maps/nlcd/NLCD_LndCov_2008.tif")
@@ -297,10 +303,10 @@ Extract_landcover <- function(nlcd_raster, blocks_sf) {
   landcover_z <- landcover_grouped %>%
     mutate(
       across(
-        .cols = -atlas_block,             # all numeric columns except the ID
+        .cols = -atlas_block, # all numeric columns except the ID
         .fns = ~ {
           z <- as.numeric(scale(.))
-          z[is.na(z)] <- 0               # replace NAs (from SD=0) with 0
+          z[is.na(z)] <- 0 # replace NAs (from SD = 0) with 0
           z
         },
         .names = "{.col}_z"
@@ -316,6 +322,9 @@ Extract_landcover <- function(nlcd_raster, blocks_sf) {
   
   return(final_df)
 }
+
+
+## APPLY ##
 
 # Extract land cover for reference year (2008), create summary
 wi_landcover2008 <- Extract_landcover(wi_nlcd_2008_rast, blocks_comp_shp)
@@ -393,7 +402,7 @@ wibba_modeling_comp <- wibba_modeling_comp %>%
 
 ### --- VIF --- ###
 
-# Multicollinearity testing
+# Multi-collinearity testing
 
 covars_all <- wibba_modeling_comp %>%
   dplyr::select(-atlas_block)
@@ -426,64 +435,6 @@ vif_values <- sort(vif_values, decreasing = TRUE)
 print(vif_values)
 
 
-
-
-# --- Gather data for easier plotting ---
-cor_long <- wibba_modeling_comp %>%
-  # Select only z-scored landcover columns with year suffixes
-  dplyr::select(matches("_(08|9515)$")) %>%
-  # Reshape long for comparison
-  tidyr::pivot_longer(
-    cols = everything(),
-    names_to = c("type", "year"),
-    names_pattern = "(.*)_(08|9515)$"
-  ) %>%
-  tidyr::pivot_wider(names_from = year, values_from = value) %>%
-  # Convert to numeric just in case (fix for 'x must be numeric')
-  dplyr::mutate(
-    `08` = as.numeric(`08`),
-    `9515` = as.numeric(`9515`)
-  ) %>%
-  # Drop NA pairs and variables with no variation
-  dplyr::filter(!is.na(`08`), !is.na(`9515`)) %>%
-  dplyr::group_by(type) %>%
-  dplyr::filter(
-    dplyr::n_distinct(`08`) > 1,
-    dplyr::n_distinct(`9515`) > 1
-  ) %>%
-  dplyr::ungroup()
-
-# --- Compute correlation coefficients for annotation ---
-cor_labels <- cor_long %>%
-  dplyr::group_by(type) %>%
-  dplyr::summarise(
-    r = cor(`08`, `9515`, use = "pairwise.complete.obs"),
-    .groups = "drop"
-  ) %>%
-  dplyr::mutate(label = paste0("r = ", round(r, 2)))
-
-# --- Plot ---
-ggplot(cor_long, aes(x = `08`, y = `9515`)) +
-  geom_point(alpha = 0.4, size = 1.2, color = "darkgray") +
-  geom_smooth(method = "lm", se = FALSE, color = "darkblue", linewidth = 0.6) +
-  facet_wrap(~type, scales = "free") +
-  geom_text(
-    data = cor_labels,
-    aes(x = -Inf, y = Inf, label = label),
-    hjust = -0.1, vjust = 1.2,
-    size = 3.5, color = "black",
-    inherit.aes = FALSE
-  ) +
-  labs(
-    x = "Z-score (2008 land cover)",
-    y = "Z-score (1995–2015 change)",
-    title = "Relationships between static (2008) and change (1995–2015) land cover covariates"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    strip.text = element_text(face = "bold"),
-    plot.title = element_text(face = "bold", hjust = 0.5)
-  )
 
 
 

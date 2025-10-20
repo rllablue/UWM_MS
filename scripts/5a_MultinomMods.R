@@ -17,8 +17,89 @@ library(nnet)
 
 
 #################################
-### 4-STATE MULTINOMIAL MODEL ###
+### 3-STATE MULTINOMIAL MODEL ###
 #################################
+
+### Modeling all states except "Absence" because lesser relevance/more signal 
+# dampening effect by calculating probabilities for blocks where species 
+# 'aren't already are.' Set "Presence" as base-state of comparison for 
+# "Colonization" and "Extinction" states.
+
+### --- FLEXIBLE MODEL --- ###
+
+Model_multinom <- function(species_name, 
+                           zf_summary = breeders_zf_summary,
+                           covariates = wibba_modeling_comp,
+                           baseline_state = "Presence") {
+  
+  species_dets <- zf_summary %>% # filter full species zf data
+    filter(common_name == species_name)
+  
+  species_dets <- species_dets %>% # exclude "Absence" state
+    filter(transition_state != "Absence")
+  
+  species_mod_df <- species_dets %>% # combine zf, covariate data
+    left_join(
+      covariates %>%
+        dplyr::select( # WIP WIP WIP
+          atlas_block,
+          pa_z,
+          lat_z,
+          lon_z,
+          srA1_resid,
+          srA2_resid,
+          developed_total_z,
+          forest_total_z,
+          grass_pasture_crop_z,
+          wetlands_total_z
+        ),
+      by = "atlas_block"
+    )
+  
+  species_mod_df <- species_mod_df %>%
+    mutate(
+      transition_state = factor(transition_state), # factorize response
+      transition_state = relevel(transition_state, ref = baseline_state) # set "Presence" state as baseline
+    )
+
+  species_mod <- multinom( # fit multinomial model  WIP
+    transition_state ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
+      developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
+    data = species_mod_df
+  )
+  
+  species_mod_df$pred_probs <- predict(species_mod, type = "probs") # add predicted probabilities
+  
+  return(list( # return list with model, combined data df, predicted probs
+    model = species_mod,
+    data = species_mod_df,
+    pred_probs = species_mod_df$pred_probs
+  ))
+}
+
+
+### --- APPLY, INSPECT --- ###
+
+rbwo_results <- Model_multinom("Red-bellied Woodpecker") # select species to run
+
+summary(rbwo_results$model) # inspect
+coef(rbwo_results$model)
+exp(coef(rbwo_results$model))
+
+head(rbwo_results$data) # view combined data
+
+head(rbwo_results$pred_probs) # predicted probs per block
+
+
+
+
+
+
+
+
+
+
+
 
 ### RCKI ###
 # Combine species detection data and modeling covariates from summary data

@@ -110,74 +110,50 @@ breeders_zf_summary <- map_dfr(species_list, Zerofill_species, checklists = chec
 
 
 
-### --- SINGLE SPECIES PROTOCOL --- ###
-
-# Zero-fill all comp checklists with species det/nondet (TRUE/FALSE)
-obs_rcki <- observations_comp %>% # filter obs to single species
-  filter(
-    common_name == "Ruby-crowned Kinglet",
-    breeding_category %in% c("C2", "C3", "C4") # only breeding individuals
-  ) %>%
-  mutate(all_species_reported = TRUE) # force incomplete checklists to complete (all Atlas1 data coded "incomplete")
-
-lists_rcki <- checklists_comp %>% # include all comp checklists
-  mutate(all_species_reported = TRUE)
-
-zf_rcki <- auk_zerofill(obs_rcki, lists_rcki, collapse = TRUE) # zf df
-
-# Summarize detections by block, Atlas period
-rcki_dets_summary <- zf_rcki %>%
-  group_by(atlas_block, atlas_period) %>%
-  summarise(species_observed = any(species_observed), .groups = "drop") %>%
-  pivot_wider(
-    names_from = atlas_period,
-    values_from = species_observed,
-    names_prefix = "det_",
-    values_fill = FALSE
-  ) %>%
-  mutate(
-    det_Atlas1 = as.integer(det_Atlas1), #convert T/F to 1/0
-    det_Atlas2 = as.integer(det_Atlas2)
-  )
-
-# Define transition states
-rcki_dets_summary <- rcki_dets_summary %>%
-  mutate(
-    transition_state = case_when(
-      det_Atlas1 == 0 & det_Atlas2 == 1 ~ "Colonization",
-      det_Atlas1 == 1 & det_Atlas2 == 0 ~ "Extinction",
-      det_Atlas1 == 1 & det_Atlas2 == 1 ~ "Persistence",
-      det_Atlas1 == 0 & det_Atlas2 == 0 ~ "Absence",
-      TRUE ~ NA_character_
-    )
-  )
-
-
-
 #################
 ### VISUALIZE ###
 #################
 
-# Visualize state transitions between Atlas periods (single species)
-blocks_comp_rcki <- blocks_comp_shp %>% left_join(rcki_dets_summary, by = "atlas_block") # join data, shp 
+### --- SPECIES DATA --- ###
 
-ggplot() + # map dets across comp blocks
-  geom_sf(data = blocks_comp_rcki, aes(fill = transition_state), size = 0.1) +
-  scale_fill_manual(
+# Reproducible for any species 
+species_to_plot <- "Bobolink"
+
+# Join species data to blocks shp data by block ID
+blocks_species <- blocks_comp_shp %>%
+  left_join(
+    breeders_zf_summary %>%
+      filter(common_name == species_to_plot),
+    by = "atlas_block"
+  )
+
+
+### --- PLOT --- ###
+
+vir_colors <- viridis::viridis(3) # make color blind-friendly palette
+
+ggplot(blocks_species) +
+  geom_sf(aes(fill = transition_state), size = 0.1) +
+  scale_fill_manual( # hacking manual fill with viridis palette
     values = c(
-      "Colonization" = "#FFD700",   # gold/yellow
-      "Extinction"   = "#1E90FF",   # blue
-      "Persistence"  = "#32CD32",   # green
-      "Absence"      = "gray80"     # light gray
+      "Colonization" = vir_colors[3], # assign accessible colors to states of interest
+      "Persistence"  = vir_colors[2],
+      "Extinction"   = vir_colors[1],
+      "Absence"      = "white" # force absence to white so it doesn't distract
     ),
-    na.value = "white"
+    breaks = c("Colonization", "Persistence", "Extinction"), # show only states of relevance
+    drop = FALSE
   ) +
   labs(
-    title = "Ruby-crowned Kinglet Atlas Block Transitions",
-    fill = "Transition State"
+    fill = "Transition State",
+    caption = "Figure 1. Map of state transitions for the Bobolink (Dolichonyx oryzivorus) across comparable survey blocks using data from the Wisconsin Breeding Bird Atlas. \nTransitions reflect detection/non-detection data aggregated at the block level (~25 km^2) across two survey periods: 1995-2000 (Atlas 1) and 2015-2019 (Atlas 2). \nWhite blocks denote those grid cells part of the comparable pool but in which the species was not detected in either Atlas period."
   ) +
   theme_minimal() +
   theme(
     legend.position = "right",
-    plot.title = element_text(hjust = 0.5, face = "bold")
+    legend.title = element_text(face = "bold", size = 13, margin = margin(b = 10)),
+    legend.text = element_text(size = 11),
+    legend.key.size = unit(1, "cm"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 9, margin = margin(t = 20))
   )

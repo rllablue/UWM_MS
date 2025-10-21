@@ -27,10 +27,10 @@ library(nnet)
 
 ### --- FLEXIBLE MODEL --- ###
 
-Model_multinom <- function(species_name, 
-                           zf_summary = breeders_zf_summary,
-                           covariates = wibba_modeling_comp,
-                           baseline_state = "Presence") {
+Model_multinomial <- function(species_name, 
+                              zf_summary = breeders_zf_summary,
+                              covariates = wibba_modeling_comp,
+                              baseline_state = "Presence") {
   
   species_dets <- zf_summary %>% # filter full species zf data
     filter(common_name == species_name)
@@ -38,10 +38,10 @@ Model_multinom <- function(species_name,
   species_dets <- species_dets %>% # exclude "Absence" state
     filter(transition_state != "Absence")
   
-  species_mod_df <- species_dets %>% # combine zf, covariate data
+  species_mod_df <- species_dets %>% # combine zf, covariate data ### WIP WIP WIP ###
     left_join(
       covariates %>%
-        dplyr::select( # WIP WIP WIP
+        dplyr::select(
           atlas_block,
           pa_z,
           lat_z,
@@ -80,15 +80,15 @@ Model_multinom <- function(species_name,
 
 ### --- APPLY, INSPECT --- ###
 
-rbwo_results <- Model_multinom("Red-bellied Woodpecker") # select species to run
+rbwo_multinom_results <- Model_multinomial("Red-bellied Woodpecker") # select species to run
 
-summary(rbwo_results$model) # inspect
-coef(rbwo_results$model)
-exp(coef(rbwo_results$model))
+summary(rbwo_multinom_results$model)
+coef(rbwo_multinom_results$model)
+exp(coef(rbwo_multinom_results$model))
 
-head(rbwo_results$data) # view combined data
+head(rbwo_multinom_results$data) # view combined data
 
-head(rbwo_results$pred_probs) # predicted probs per block
+head(rbwo_multinom_results$pred_probs) # predicted probs per block
 
 
 

@@ -1,4 +1,140 @@
-## 4 LOGISTIC REG MODELS (CASC POSTER) ##
+#############
+### SETUP ###
+#############
+
+## --- LOAD PACKAGES --- ##
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(magrittr)
+library(tidyr)
+library(purrr)
+library(units)
+
+
+
+#########################
+### 3 LOGISTIC MODELS ###
+#########################
+
+Model_logistic <- function(species_name, 
+                           zf_summary = breeders_zf_summary,
+                           covariates = wibba_modeling_comp) {
+  
+  species_dets <- zf_summary %>% # filter full species zf data
+    filter(common_name == species_name)
+  
+  species_mod_df <- species_dets %>% # combine zf, covariate data ### WIP WIP WIP ###
+    left_join(
+      covariates %>%
+        dplyr::select(
+          atlas_block,
+          pa_z,
+          lat_z,
+          lon_z,
+          srA1_resid,
+          srA2_resid,
+          developed_total_z,
+          forest_total_z,
+          grass_pasture_crop_z,
+          wetlands_total_z
+        ),
+      by = "atlas_block"
+    )
+  
+  species_mod_df <- species_mod_df %>% # create state identifiers
+    mutate(
+      is_colonization = ifelse(transition_state == "Colonization", 1, 0),
+      is_extinction   = ifelse(transition_state == "Extinction", 1, 0),
+      is_persistence  = ifelse(transition_state == "Presence", 1, 0)
+    )
+  
+  # --- Fit logistic models --- # WIP WIP WIP ###
+  mod_colonization <- glm(is_colonization ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
+                            developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
+                          data = species_mod_df, family = binomial)
+  
+  mod_extinction <- glm(is_extinction ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
+                          developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
+                        data = species_mod_df, family = binomial)
+  
+  mod_persistence <- glm(is_persistence ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
+                           developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
+                         data = species_mod_df, family = binomial)
+  
+  # --- Predict probabilities --- #
+  species_mod_df <- species_mod_df %>%
+    mutate(
+      p_colonization = predict(mod_colonization, type = "response"),
+      p_extinction   = predict(mod_extinction, type = "response"),
+      p_persistence  = predict(mod_persistence, type = "response")
+    )
+  
+  # --- Output --- #
+  return(list(
+    models = list(
+      colonization = mod_colonization,
+      extinction = mod_extinction,
+      persistence = mod_persistence
+    ),
+    data = species_mod_df,
+    pred_probs = species_mod_df %>%
+      select(atlas_block, p_colonization, p_extinction, p_persistence)
+  ))
+}
+
+### --- APPLY, INSPECT --- ###
+
+rbwo_log_results <- Model_three_logistic("Red-bellied Woodpecker")
+
+summary(rbwo_log_results$models$colonization)
+summary(rbwo_log_results$models$extinction)
+summary(rbwo_log_results$models$persistence)
+
+head(rbwo_log_results$data)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Create binary response variable, subset by transition state variables
 
 # --- RCKI ---

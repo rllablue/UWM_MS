@@ -34,106 +34,262 @@ blocks_comp_daymet_shp <- st_transform(blocks_comp_shp, crs = daymet_crs)
 # reference periods (18 years prior to the end of each Atlas period) for analysis
 # of climate anomalies. 
 
-Extract_climate <- function(files_list, blocks_shp, wibba_df, metrics = c("tmax", "tmin", "precip"),
-                                     summer_months = 5:8,
-                                     period1 = 1982:2000, period2 = 2001:2019) {
+Extract_climate <- function(files_list, 
+                            blocks_shp, 
+                            wibba_df, 
+                            metrics = c("tmax", "tmin", "prcp"),
+                            summer_months = 5:8,
+                            period1 = 1982:2000, 
+                            period2 = 2001:2019) {
   
   wibba_out <- wibba_df
   
-  for(metric in metrics) {
+  for (metric in metrics) {
     files <- files_list[[metric]]
     
-    Extract_annual <- function(file_path) { 
-      year <- as.numeric(str_extract(basename(file_path), "\\d{4}"))
+    # Safeguard: drop missing or invalid file paths
+    files <- purrr::compact(files)
+    files <- files[file.exists(files)]
+    if (length(files) == 0) {
+      warning(paste("No valid files found for", metric))
+      next
+    }
+    
+    Extract_annual <- function(file_path) {
+      year <- as.numeric(stringr::str_extract(basename(file_path), "\\d{4}"))
       stack_r <- raster::stack(file_path)
       
-      if(nlayers(stack_r) < max(summer_months)) {
+      if (nlayers(stack_r) < max(summer_months)) {
         warning(paste("Skipping", basename(file_path), "- not enough bands"))
         return(NULL)
       }
       
+      # Mean of May–Aug bands
       summer_avg <- raster::calc(stack_r[[summer_months]], mean, na.rm = TRUE)
-      values <- exact_extract(summer_avg, blocks_shp, 'mean')
       
-      # Return tibble with dynamic column name
-      tibble(
+      # Extract mean per polygon
+      values <- exactextractr::exact_extract(summer_avg, blocks_shp, 'mean')
+      values <- unlist(values)
+      
+      tibble::tibble(
         atlas_block = blocks_shp$atlas_block,
         year = year,
         !!metric := values
       )
     }
     
-    annual_df <- map_dfr(files, Extract_annual) # extract annual values
+    # Annual summer values per year per block
+    annual_df <- purrr::map_dfr(files, Extract_annual)
     
-    longterm_df <- annual_df %>% # calc long-term raw, z-standardized avg per block
-      group_by(atlas_block) %>%
-      summarise(
+    if (!"atlas_block" %in% colnames(annual_df)) {
+      stop("atlas_block column is missing in annual_df.")
+    }
+    
+    # Long-term mean (38-year reference)
+    longterm_df <- annual_df %>%
+      dplyr::group_by(atlas_block) %>%
+      dplyr::summarise(
         !!paste0(metric, "_38yr") := mean(.data[[metric]], na.rm = TRUE),
-        n_years = n(),
+        n_years = dplyr::n(),
         .groups = "drop"
       ) %>%
-      mutate(
+      dplyr::mutate(
         !!paste0(metric, "_38yr_z") := as.numeric(scale(.data[[paste0(metric, "_38yr")]]))
       )
     
-    period_df <- annual_df %>% # calc period raw, z-standardized avgs per block
-      mutate(
-        period = case_when(
+    # Period means (18 years each)
+    period_df <- annual_df %>%
+      dplyr::mutate(
+        period = dplyr::case_when(
           year %in% period1 ~ "t1",
           year %in% period2 ~ "t2",
           TRUE ~ NA_character_
         )
       ) %>%
-      filter(!is.na(period)) %>%
-      group_by(atlas_block, period) %>%
-      summarise(
+      dplyr::filter(!is.na(period)) %>%
+      dplyr::group_by(atlas_block, period) %>%
+      dplyr::summarise(
         !!paste0(metric, "_avg") := mean(.data[[metric]], na.rm = TRUE),
-        n_years = n(),
+        n_years = dplyr::n(),
         .groups = "drop"
       ) %>%
-      pivot_wider(
+      tidyr::pivot_wider(
         names_from = period,
         values_from = !!paste0(metric, "_avg"),
         names_glue = paste0(metric, "_{period}")
       ) %>%
-      mutate(
+      dplyr::mutate(
         !!paste0(metric, "_diff") := .data[[paste0(metric, "_t2")]] - .data[[paste0(metric, "_t1")]],
         !!paste0(metric, "_diff_z") := as.numeric(scale(.data[[paste0(metric, "_diff")]]))
       )
-
-    wibba_out <- wibba_out %>% # join values to modeling df
-      left_join(dplyr::select(longterm_df, atlas_block, !!paste0(metric, "_38yr_z")), by = "atlas_block") %>%
-      left_join(dplyr::select(period_df, atlas_block, !!paste0(metric, "_diff_z")), by = "atlas_block")
+    
+    # Join to modeling df
+    wibba_out <- wibba_out %>%
+      dplyr::left_join(
+        dplyr::select(longterm_df, atlas_block, !!paste0(metric, "_38yr_z")),
+        by = "atlas_block"
+      ) %>%
+      dplyr::left_join(
+        dplyr::select(period_df, atlas_block, !!paste0(metric, "_diff_z")),
+        by = "atlas_block"
+      )
   }
   
   return(wibba_out)
 }
 
-# Set locations for files
+
+### --- FILE SETUP --- ###
 tmax_dir <- "data/maps/daymet/38yr_tmax"
 tmin_dir <- "data/maps/daymet/38yr_tmin"
-precip_dir <- "data/maps/daymet/38yr_precip"
+prcp_dir <- "data/maps/daymet/38yr_prcp"
 
 tmax_files <- list.files(path = tmax_dir, pattern = "\\.tif$", full.names = TRUE) %>% sort()
 tmin_files <- list.files(path = tmin_dir, pattern = "\\.tif$", full.names = TRUE) %>% sort()
-precip_files <- list.files(path = precip_dir, pattern = "\\.tif$", full.names = TRUE) %>% sort()
+prcp_files <- list.files(path = prcp_dir, pattern = "\\.tif$", full.names = TRUE) %>% sort()
 
-files_list <- list( # put in list for function to apply
+files_list <- list(  # list for function
   tmax = tmax_files,
   tmin = tmin_files,
-  precip = precip_files
+  prcp = prcp_files
 )
 
-# Apply function, join to modeling df
+### --- APPLY FUNCTION --- ###
 wibba_modeling_comp <- Extract_climate(
   files_list = files_list,
   blocks_shp = blocks_comp_daymet_shp,
   wibba_df = wibba_modeling_comp,
-  metrics = c("tmax", "tmin", "precip")
+  metrics = c("tmax", "tmin", "prcp")
 )
 
 
 
+
+
+
+
+######################### TESTING ADJUSTMENTS ################################
+
+Extract_climate_safe <- function(files_list, 
+                                 blocks_shp, 
+                                 wibba_df, 
+                                 metrics = c("tmax", "tmin", "precip"),
+                                 summer_months = 5:8,
+                                 period1 = 1982:2000, period2 = 2001:2019) {
+  
+  wibba_out <- wibba_df
+  
+  for (metric in metrics) {
+    files <- files_list[[metric]]
+    
+    Extract_annual <- function(file_path) {
+      year <- as.numeric(stringr::str_extract(basename(file_path), "\\d{4}"))
+      stack_r <- raster::stack(file_path)
+      
+      if (nlayers(stack_r) < max(summer_months)) {
+        warning(paste("Skipping", basename(file_path), "- not enough bands"))
+        return(NULL)
+      }
+      
+      summer_avg <- raster::calc(stack_r[[summer_months]], mean, na.rm = TRUE)
+      values <- exactextractr::exact_extract(summer_avg, blocks_shp, 'mean')
+      values <- unlist(values)
+      
+      tibble::tibble(
+        atlas_block = blocks_shp$atlas_block,
+        year = year,
+        !!metric := values
+      )
+    }
+    
+    # Annual summer values per year per block
+    annual_df <- purrr::map_dfr(files, Extract_annual)
+    
+    if (!"atlas_block" %in% colnames(annual_df)) stop("atlas_block column is missing in annual_df.")
+    
+    # Long-term mean (38-year reference)
+    longterm_df <- annual_df %>%
+      dplyr::group_by(atlas_block) %>%
+      dplyr::summarise(
+        !!paste0(metric, "_38yr") := mean(.data[[metric]], na.rm = TRUE),
+        n_years = dplyr::n(),
+        .groups = "drop"
+      ) %>%
+      dplyr::mutate(
+        !!paste0(metric, "_38yr_z") := as.numeric(scale(.data[[paste0(metric, "_38yr")]]))
+      )
+    
+    # Period means (18 years each)
+    period_df <- annual_df %>%
+      dplyr::mutate(
+        period = dplyr::case_when(
+          year %in% period1 ~ "t1",
+          year %in% period2 ~ "t2",
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      dplyr::filter(!is.na(period)) %>%
+      dplyr::group_by(atlas_block, period) %>%
+      dplyr::summarise(
+        !!paste0(metric, "_avg") := mean(.data[[metric]], na.rm = TRUE),
+        n_years = dplyr::n(),
+        .groups = "drop"
+      ) %>%
+      tidyr::pivot_wider(
+        names_from = period,
+        values_from = !!paste0(metric, "_avg"),
+        names_glue = paste0(metric, "_{period}")
+      ) %>%
+      dplyr::mutate(
+        # Safe difference calculation
+        !!paste0(metric, "_diff") := if(all(c(paste0(metric, "_t1"), paste0(metric, "_t2")) %in% names(.))) {
+          .data[[paste0(metric, "_t2")]] - .data[[paste0(metric, "_t1")]]
+        } else {
+          NA_real_
+        },
+        !!paste0(metric, "_diff_z") := if(!all(is.na(.data[[paste0(metric, "_diff")]]))) {
+          as.numeric(scale(.data[[paste0(metric, "_diff")]]))
+        } else {
+          NA_real_
+        }
+      )
+    
+    # Join to modeling df
+    wibba_out <- wibba_out %>%
+      dplyr::left_join(
+        dplyr::select(longterm_df, atlas_block, !!paste0(metric, "_38yr_z")),
+        by = "atlas_block"
+      ) %>%
+      dplyr::left_join(
+        dplyr::select(period_df, atlas_block, !!paste0(metric, "_diff_z")),
+        by = "atlas_block"
+      )
+  }
+  
+  return(wibba_out)
+}
+
+
+
+
+
+####################################################
+
+# Parallelize run
+climate_future <- future({
+  Extract_climate(
+    files_list = files_list,
+    blocks_shp = blocks_comp_daymet_shp,
+    wibba_df = wibba_modeling_comp,
+    metrics = c("tmax", "tmin", "precip")
+  )
+})
+
+# Do other work here while it runs...
+print("Doing other work while Extract_climate runs...")
+
+# When ready, collect the result:
+wibba_modeling_comp <- value(climate_future)
 
 
 

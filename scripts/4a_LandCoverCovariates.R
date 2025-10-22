@@ -2,7 +2,7 @@
 ### SETUP ###
 #############
 
-## --- LOAD PACKAGES --- ##
+## --- PACKAGES --- ##
 
 library(dplyr)
 library(tidyr)
@@ -20,23 +20,17 @@ library(GGally)
 library(corrplot)
 
 
-## -- MODELING COVARIATE DF --- ###
+## -- DATAFRAMES --- ###
 
 # Create new df with only covariate values to be used in modeling 
-
 wibba_modeling_comp <- wibba_summary_comp %>%
   dplyr::select(atlas_block)
 
 
+### --- FUNCTIONS --- ###
 
-#########################
-### LAND COVER (NLCD) ###
-#########################
-
-### --- CLIP RASTERS --- ###
-
-# Create function to clip buffered atlas outline from full NLCD 
-crop_mask_buffered_bbox <- function(raster_obj, polygon_sf, buffer_dist = 1000) {
+# Helper to clip buffered atlas outline from full NLCD 
+Crop_mask_buffer <- function(raster_obj, polygon_sf, buffer_dist = 1000) {
   bbox_sf <- st_as_sfc(st_bbox(polygon_sf)) # Create bbox polygon from input sf polygon
   buffered_bbox_sf <- st_buffer(bbox_sf, dist = buffer_dist) # Buffer the bbox (units same as polygon crs)
   buffered_bbox_sf_proj <- st_transform(buffered_bbox_sf, crs(raster_obj)) # Reproject buffered bbox to raster CRS
@@ -45,6 +39,131 @@ crop_mask_buffered_bbox <- function(raster_obj, polygon_sf, buffer_dist = 1000) 
   raster_masked <- terra::mask(raster_cropped, buffered_bbox_vect)
   return(raster_masked)
 }
+
+
+
+#########################
+### LAND COVER (NLCD) ###
+#########################
+
+
+### --- SINGLE REFERENCE YEAR --- ###
+# Land cover for intermediate year (2008) between Atlas periods
+
+# --- FILES, SET UP --- #
+
+# Load NLCD raster (crs custom AEA)
+nlcd_2008_raw <- rast("data/maps/nlcd/NLCD_LndCov_2008.tif")
+
+# Clip, mask NLCD raster to buffered Atlas outline
+wi_nlcd_2008_buffered <- Crop_mask_buffer(nlcd_2008_raw, atlas_outline_crs3071, buffer_dist = 1000)
+
+# Reproject cropped wi rasters back to block crs (EPSG:3071)
+wi_nlcd_2008_crs3071 <- terra::project(wi_nlcd_2008_buffered, crs(blocks_comp_shp), method = "near")
+
+# Convert terra raster to raster object (exactextractr compatability)
+wi_nlcd_2008_rast <- raster::raster(wi_nlcd_2008_crs3071)
+crs(wi_nlcd_2008_rast) <- crs(wi_nlcd_2008_crs3071) # force crs
+
+
+# --- FUNCTION --- #
+
+# Function to extract land cover 
+Extract_landcover <- function(nlcd_raster, blocks_sf, year_suffix) {
+  
+  # Extract raster values per polygon
+  nlcd_extract <- exactextractr::exact_extract(nlcd_raster, blocks_sf)
+  valid_classes <- c(11, 21, 22, 23, 24, 31, 41, 42, 43, 52, 71, 81, 82, 90, 95)
+  
+  # Summarize class coverage by block
+  landcover_summary <- purrr::map2_dfr(
+    nlcd_extract,
+    blocks_sf$atlas_block,
+    ~ {
+      tibble(class = .x$value, coverage = .x$coverage_fraction) %>%
+        filter(class %in% valid_classes) %>%
+        group_by(class) %>%
+        summarize(class_cover = sum(coverage, na.rm = TRUE), .groups = "drop") %>%
+        mutate(atlas_block = .y,
+               percent_cover = 100 * class_cover / sum(class_cover))
+    }
+  )
+  
+  # Pivot wide, rename, group
+  landcover_named <- landcover_summary %>%
+    dplyr::select(atlas_block, class, percent_cover) %>%
+    tidyr::pivot_wider(
+      names_from = class,
+      values_from = percent_cover,
+      names_prefix = "nlcd_"
+    ) %>%
+    mutate(
+      across(starts_with("nlcd_"), ~replace_na(.x, 0))
+    ) %>%
+    rename(
+      water_open        = nlcd_11,
+      developed_open    = nlcd_21,
+      developed_low     = nlcd_22,
+      developed_med     = nlcd_23,
+      developed_high    = nlcd_24,
+      barren_land       = nlcd_31,
+      forest_deciduous  = nlcd_41,
+      forest_evergreen  = nlcd_42,
+      forest_mixed      = nlcd_43,
+      shrub_scrub       = nlcd_52,
+      grassland         = nlcd_71,
+      pasture           = nlcd_81,
+      cropland          = nlcd_82,
+      wetlands_woody    = nlcd_90,
+      wetlands_herb     = nlcd_95
+    ) %>%
+    mutate(
+      developed_lower   = developed_open + developed_low,
+      developed_upper   = developed_med + developed_high,
+      pasture_crop      = pasture + cropland,
+      developed_total   = developed_open + developed_low + developed_med + developed_high,
+      forest_total      = forest_deciduous + forest_evergreen + forest_mixed,
+      wetlands_total    = wetlands_woody + wetlands_herb
+    )
+  
+  # Z-score both individual and grouped columns
+  landcover_z <- landcover_named %>%
+    mutate(across(
+      .cols = -atlas_block,
+      .fns = ~ { z <- as.numeric(scale(.)); z[is.na(z)] <- 0; z },
+      .names = "{.col}_z"
+    ))
+  
+  # Combine raw + z, append year suffix
+  final_df <- landcover_z %>%
+    rename_with(~ paste0(., "_", year_suffix), -atlas_block)
+  
+  return(final_df)
+}
+
+
+### --- APPLY --- ###
+
+# PARALLELIZE PROCESS #
+num_cores <- detectCores() # examine cores
+print(num_cores)
+
+future::plan(multisession, workers = 10) # set # cores for processing
+
+Parallel_land2008 <- future({ # Assign process to run in parallel
+  Extract_landcover(
+    nlcd_raster = wi_nlcd_2008_rast,
+    blocks_sf = blocks_comp_shp,
+    year_suffix = "08"
+  )
+})
+
+resolved(Parallel_land2008) # Check completion
+
+landcover_summary_2008 <- value(Parallel_land2008) # store results
+
+
+
 
 
 ### --- COVER DIFFERENCE --- ###
@@ -58,8 +177,8 @@ nlcd_1995_raw <- rast("data/maps/nlcd/NLCD_LndCov_1995.tif")
 nlcd_2015_raw <- rast("data/maps/nlcd/NLCD_LndCov_2015.tif")
 
 # Clip, mask NLCD rasters to buffered Atlas outline
-wi_nlcd_1995_buffered <- crop_mask_buffered_bbox(nlcd_1995_raw, atlas_outline_crs3071, buffer_dist = 1000)
-wi_nlcd_2015_buffered <- crop_mask_buffered_bbox(nlcd_2015_raw, atlas_outline_crs3071, buffer_dist = 1000)
+wi_nlcd_1995_buffered <- Crop_mask_buffer(nlcd_1995_raw, atlas_outline_crs3071, buffer_dist = 1000)
+wi_nlcd_2015_buffered <- Crop_mask_buffer(nlcd_2015_raw, atlas_outline_crs3071, buffer_dist = 1000)
 
 # Reproject cropped wi rasters back to block crs (EPSG:3071)
 wi_nlcd_1995_crs3071 <- terra::project(wi_nlcd_1995_buffered, crs(blocks_comp_shp), method = "near")
@@ -80,11 +199,10 @@ crs(wi_nlcd_2015_rast) <- crs(wi_nlcd_2015_crs3071)
 ### EXTRACTION ###
 
 # Function to extract land cover per block
-Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
+Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_suffix) {
   
   # Extract single raster
-  extract_single <- function(nlcd_raster, blocks_sf) {
-    
+  Extract_single <- function(nlcd_raster, blocks_sf) {
     nlcd_extract <- exactextractr::exact_extract(nlcd_raster, blocks_sf)
     valid_classes <- c(11, 21, 22, 23, 24, 31, 41, 42, 43, 52, 71, 81, 82, 90, 95)
     
@@ -110,7 +228,9 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
         values_from = percent_cover,
         names_prefix = "nlcd_"
       ) %>%
-      mutate(across(starts_with("nlcd_"), ~replace_na(.x, 0))) %>%
+      mutate(
+        across(starts_with("nlcd_"), ~replace_na(.x, 0))
+      ) %>%
       rename(
         water_open        = nlcd_11,
         developed_open    = nlcd_21,
@@ -127,36 +247,34 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
         cropland          = nlcd_82,
         wetlands_woody    = nlcd_90,
         wetlands_herb     = nlcd_95
-      )
-    
-    # Grouped categories
-    landcover_grouped <- landcover_named %>%
+      ) %>%
       mutate(
-        developed_lower     = developed_open + developed_low,
-        developed_upper     = developed_med + developed_high,
-        pasture_crop        = pasture + cropland,
+        developed_lower   = developed_open + developed_low,
+        developed_upper   = developed_med + developed_high,
+        pasture_crop      = pasture + cropland,
+        developed_total   = developed_open + developed_low + developed_med + developed_high,
+        forest_total      = forest_deciduous + forest_evergreen + forest_mixed,
+        wetlands_total    = wetlands_woody + wetlands_herb
       )
     
-    # Z-scores for both individual and grouped columns
-    landcover_z <- landcover_grouped %>%
-      mutate(
-        across(
-          .cols = -atlas_block,             # all numeric columns except the ID
-          .fns = ~ {
-            z <- as.numeric(scale(.))
-            z[is.na(z)] <- 0               # replace NAs (from SD=0) with 0
-            z
-          },
-          .names = "{.col}_z"
-        )
-      )
+    # Z-standardize
+    landcover_z <- landcover_named %>%
+      mutate(across(
+        .cols = -atlas_block,
+        .fns = ~ { z <- as.numeric(scale(.)); z[is.na(z)] <- 0; z },
+        .names = "{.col}_z"
+      ))
     
-    return(landcover_z)
+    # Combine raw + z, append year suffix
+    final_df <- landcover_z %>%
+      rename_with(~ paste0(., "_", year_suffix), -atlas_block)
+    
+    return(final_df)
   }
   
-  # Extract early and late years
-  land_early <- extract_single(raster_early, blocks_sf)
-  land_late  <- extract_single(raster_late,  blocks_sf)
+  # Extract early, late years
+  land_early <- Extract_single(raster_early, blocks_sf, years_suffix[1])
+  land_late  <- Extract_single(raster_late,  blocks_sf, years_suffix[2])
   
   # Compute differences
   land_diff <- land_early %>%
@@ -184,8 +302,11 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
       developed_lower_diff    = developed_open_diff + developed_low_diff,
       developed_upper_diff    = developed_med_diff + developed_high_diff,
       pasture_crop_diff       = pasture_diff + cropland_diff,
+      developed_total_diff    = developed_open_diff + developed_low_diff + developed_med_diff + developed_high_diff,
+      forest_total_diff       = forest_deciduous_diff + forest_evergreen_diff + forest_mixed_diff,
+      wetlands_total_diff     = wetlands_woody_diff + wetlands_herb_diff
     ) %>%
-    # Z-scores for all diffs
+    # Z-standardize
     mutate(
       across(
         .cols = ends_with("_diff"),
@@ -199,197 +320,53 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf) {
     landcover_early = land_early,
     landcover_late  = land_late,
     landcover_diff  = land_diff %>%
-      dplyr::select(atlas_block, ends_with("_diff"), ends_with("_diff_z"))
+      select(atlas_block, ends_with("_diff"), ends_with("_diff_z"))
   ))
 }
 
 
-## APPLY ##
+### --- APPLY --- ###
 
-land9515_all <- Extract_landcover_diff(
-  raster_early = wi_nlcd_1995_rast,
-  raster_late  = wi_nlcd_2015_rast,
-  blocks_sf    = blocks_comp_shp
-)
+# PARALLELIZE PROCESS #
 
-# Create separate dfs (all w/ individual, grouped raw, z-standardized cover % per block)
-wi_landcover1995 <- land9515_all$landcover_early    
-wi_landcover2015 <- land9515_all$landcover_late      
-wi_land9515_diff <- land9515_all$landcover_diff     
+future::plan(multisession, workers = 10) 
 
-
-
-
-
-### --- SINGLE REFERENCE YEAR --- ###
-
-# Land cover for intermediate year (2008) between Atlas periods
-
-## SET UP ##
-
-# Load NLCD raster (crs custom AEA)
-nlcd_2008_raw <- rast("data/maps/nlcd/NLCD_LndCov_2008.tif")
-
-# Clip, mask NLCD raster to buffered Atlas outline
-wi_nlcd_2008_buffered <- crop_mask_buffered_bbox(nlcd_2008_raw, atlas_outline_crs3071, buffer_dist = 1000)
-
-# Reproject cropped wi rasters back to block crs (EPSG:3071)
-wi_nlcd_2008_crs3071 <- terra::project(wi_nlcd_2008_buffered, crs(blocks_comp_shp), method = "near")
-
-# Convert terra raster to raster object (exactextractr compatability)
-wi_nlcd_2008_rast <- raster::raster(wi_nlcd_2008_crs3071)
-crs(wi_nlcd_2008_rast) <- crs(wi_nlcd_2008_crs3071) # force crs
-
-# Function to extract land cover 
-Extract_landcover <- function(nlcd_raster, blocks_sf) {
-  
-  # Extract raster values per polygon
-  nlcd_extract <- exactextractr::exact_extract(nlcd_raster, blocks_sf)
-  valid_classes <- c(11, 21, 22, 23, 24, 31, 41, 42, 43, 52, 71, 81, 82, 90, 95)
-  
-  # Summarize class coverage by block
-  landcover_summary <- purrr::map2_dfr(
-    nlcd_extract,
-    blocks_sf$atlas_block,
-    ~ {
-      tibble(class = .x$value, coverage = .x$coverage_fraction) %>%
-        filter(class %in% valid_classes) %>%
-        group_by(class) %>%
-        summarize(class_cover = sum(coverage, na.rm = TRUE), .groups = "drop") %>%
-        mutate(atlas_block = .y,
-               percent_cover = 100 * class_cover / sum(class_cover))
-    }
+# Assign process to run in parallel
+Parallel_land9515 <- future({
+  Extract_landcover_diff(
+    raster_early = wi_nlcd_1995_rast,
+    raster_late  = wi_nlcd_2015_rast,
+    blocks_sf    = blocks_comp_shp,
+    years_suffix = c("1995", "2015")
   )
-  
-  # Pivot to wide format
-  landcover_wide <- landcover_summary %>%
-    dplyr::select(atlas_block, class, percent_cover) %>%
-    tidyr::pivot_wider(
-      names_from = class,
-      values_from = percent_cover,
-      names_prefix = "nlcd_"
-    ) %>%
-    mutate(across(starts_with("nlcd_"), ~replace_na(.x, 0)))
-  
-  # Rename NLCD classes
-  landcover_named <- landcover_wide %>%
-    rename(
-      water_open        = nlcd_11,
-      developed_open    = nlcd_21,
-      developed_low     = nlcd_22,
-      developed_med     = nlcd_23,
-      developed_high    = nlcd_24,
-      barren_land       = nlcd_31,
-      forest_deciduous  = nlcd_41,
-      forest_evergreen  = nlcd_42,
-      forest_mixed      = nlcd_43,
-      shrub_scrub       = nlcd_52,
-      grassland         = nlcd_71,
-      pasture           = nlcd_81,
-      cropland          = nlcd_82,
-      wetlands_woody    = nlcd_90,
-      wetlands_herb     = nlcd_95
-    )
-  
-  # Add grouped totals
-  landcover_grouped <- landcover_named %>%
-    mutate(
-      developed_lower     = developed_open + developed_low,
-      developed_upper     = developed_med + developed_high,
-      pasture_crop        = pasture + cropland,
-    )
-  
-  # Z-score both individual and grouped columns
-  landcover_z <- landcover_grouped %>%
-    mutate(
-      across(
-        .cols = -atlas_block, # all numeric columns except the ID
-        .fns = ~ {
-          z <- as.numeric(scale(.))
-          z[is.na(z)] <- 0 # replace NAs (from SD = 0) with 0
-          z
-        },
-        .names = "{.col}_z"
-      )
-    )
-  
-  # Create results df (individual, grouped and raw, z-standardized cover % per block)
-  final_df <- landcover_grouped %>%
-    left_join(
-      landcover_z %>% dplyr::select(atlas_block, ends_with("_z")),
-      by = "atlas_block"
-    )
-  
-  return(final_df)
-}
+})
 
+resolved(Parallel_land9515)
 
-## APPLY ##
-
-# Extract land cover for reference year (2008), create summary
-wi_landcover2008 <- Extract_landcover(wi_nlcd_2008_rast, blocks_comp_shp)
+landcover_summary_comp <- value(Parallel_land9515)
 
 
 
-########################
-### GROUP, SUMMARIZE ###
-########################
+### --- SUMMARIZE --- ###
 
-# Select relevant covariates for modeling
-landcover_cols_2008z <- c(
-  "atlas_block",
-  "water_open_z",
-  "forest_deciduous_z",
-  "forest_evergreen_z",
-  "forest_mixed_z",
-  "shrub_scrub_z",
-  "grassland_z",
-  "wetlands_woody_z",
-  "wetlands_herb_z",
-  "developed_lower_z",
-  "developed_upper_z",
-  "pasture_crop_z"
-)
+# Join to landcover df for all reference years
+landcover_summary_comp <- landcover_summary_2008 %>%
+  left_join(landcover_summary_9515$landcover_early, by = "atlas_block") %>%
+  left_join(landcover_summary_9515$landcover_late, by = "atlas_block") %>%
+  left_join(landcover_summary_9515$landcover_diff, by = "atlas_block")
 
-landcover_cols_diffz <- c(
-  "atlas_block",
-  "water_open_diff_z",
-  "forest_deciduous_diff_z",
-  "forest_evergreen_diff_z",
-  "forest_mixed_diff_z",
-  "shrub_scrub_diff_z",
-  "grassland_diff_z",
-  "wetlands_woody_diff_z",
-  "wetlands_herb_diff_z",
-  "developed_lower_diff_z",
-  "developed_upper_diff_z",
-  "pasture_crop_diff_z"
-)
-
-# New dfs for filtered, renamed covariates
-wiland_2008z_filt <- wi_landcover2008 %>%
-  dplyr::select(dplyr::all_of(landcover_cols_2008z)) %>%
-  dplyr::rename_with(
-    ~ paste0(., "_08"),
-    -atlas_block
-  )
-
-wiland_9515z_filt <- wi_land9515_diff %>%
-  dplyr::select(dplyr::all_of(landcover_cols_diffz)) %>%
-  dplyr::rename_with(
-    ~ paste0(., "_9515"),
-    -atlas_block
-  )
-
-# Merge with modeling df
+# Join to modeling df (z-standardized values)
 wibba_modeling_comp <- wibba_modeling_comp %>%
-  dplyr::left_join(wiland_2008z_filt, by = "atlas_block") %>%
-  dplyr::left_join(wiland_9515z_filt, by = "atlas_block")
-
-
-
-
-
+  left_join(
+    landcover_summary_comp$landcover_2008 %>% # join 2008 landcover z values
+      select(atlas_block, ends_with("_z_08")),
+    by = "atlas_block"
+  ) %>%
+  left_join(
+    landcover_summary_comp$landcover_diff %>% # join difference z values (1995–2015)
+      select(atlas_block, ends_with("_diff_z")),
+    by = "atlas_block"
+  )
 
 
 

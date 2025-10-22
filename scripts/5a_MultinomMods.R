@@ -2,7 +2,7 @@
 ### SETUP ###
 #############
 
-## --- LOAD PACKAGES --- ##
+### --- LOAD PACKAGES --- ###
 
 library(dplyr)
 library(ggplot2)
@@ -14,6 +14,15 @@ library(units)
 library(broom)
 library(nnet)
 
+
+### --- DATA PREP --- ###
+
+# Add species alpha codes to data to support flexible naming system during modeling
+
+breeders_alpha <- read.csv("data/species/wibba_breeders_alpha.csv", stringsAsFactors = FALSE) 
+
+breeders_zf_summary <- breeders_zf_summary %>%
+  left_join(breeders_alpha, by = "common_name")
 
 
 #################################
@@ -28,160 +37,106 @@ library(nnet)
 ### --- FLEXIBLE MODEL --- ###
 
 Model_multinomial <- function(species_name, 
+                              alpha_lookup = breeders_alpha,
                               zf_summary = breeders_zf_summary,
                               covariates = wibba_modeling_comp,
-                              baseline_state = "Presence") {
+                              baseline_state = "Persistence",
+                              min_cov_pct = 0.01,
+                              min_change_pct = 0.01
+                              ) {
+ 
   
+ # Lookup species alpha code
+  alpha_code <- alpha_lookup %>%
+    filter(common_name == species_name) %>%
+    pull(alpha_code)
+  
+  if (length(alpha_code) == 0) {
+    stop(paste0("No alpha_code found for ", species_name, ". Check breeders_alpha."))
+  } 
+   
+
+  # Filter, aggregate detection data 
   species_dets <- zf_summary %>% # filter full species zf data
-    filter(common_name == species_name)
-  
-  species_dets <- species_dets %>% # exclude "Absence" state
+    filter(common_name == species_name) %>%
     filter(transition_state != "Absence")
   
-  species_mod_df <- species_dets %>% # combine zf, covariate data ### WIP WIP WIP ###
-    left_join(
-      covariates %>%
-        dplyr::select(
-          atlas_block,
-          pa_z,
-          lat_z,
-          lon_z,
-          srA1_resid,
-          srA2_resid,
-          developed_total_z,
-          forest_total_z,
-          grass_pasture_crop_z,
-          wetlands_total_z
-        ),
-      by = "atlas_block"
-    )
+  species_mod_df <- species_dets %>% # combine zf, covariate data
+    left_join(covariates, by = "atlas_block")
+  
+  
+  # Determine which landcover covariates to keep per species by thresholds
+  # Baseline landcover (z reference year: 2008)
+  baseline_landcov <- grep("_z_08$", names(species_mod_df), value = TRUE)
+  keep_baseline <- baseline_landcov[
+    sapply(species_mod_df[baseline_landcov], function(x) mean(x, na.rm = TRUE) >= min_cov_pct)
+  ]
+  
+  # Landcover change (z difference reference years: 2015 - 1995)
+  change_landcov <- grep("_z_9515$", names(species_mod_df), value = TRUE)
+  keep_change <- change_landcov[
+    sapply(species_mod_df[change_landcov], function(x) max(x, na.rm = TRUE) - min(x, na.rm = TRUE) >= min_change_pct)
+  ]
+  
+  # Model specifications
+  ### WIP WIP WIP: add climate ###
+  fixed_covars <- c("pa_z", "srA1_resid", "srA2_resid") # aggregate covariates
+  final_covars <- c(fixed_covars, keep_baseline, keep_change)
   
   species_mod_df <- species_mod_df %>%
     mutate(
       transition_state = factor(transition_state), # factorize response
-      transition_state = relevel(transition_state, ref = baseline_state) # set "Presence" state as baseline
+      transition_state = relevel(transition_state, ref = baseline_state) # set baseline state
     )
 
-  species_mod <- multinom( # fit multinomial model  WIP
-    transition_state ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
-      developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
-    data = species_mod_df
-  )
+  fmla <- as.formula(
+    paste("transition_state ~", paste(final_covars, collapse = " + "))   # flexible formula construction
+  ) 
   
+  species_mod <- nnet::multinom(fmla, data = species_mod_df) # fit model
   species_mod_df$pred_probs <- predict(species_mod, type = "probs") # add predicted probabilities
   
-  return(list( # return list with model, combined data df, predicted probs
+  # Model summary objects
+  model_summary <- summry(species_mod)
+  model_coef <- coef(species_mod)
+  model_odds <- exp(model_coef)
+  
+  # Return, label all results with flexible naming convention
+  result <- list(
+    species = species_name,
+    alpha = alpha_code,
     model = species_mod,
     data = species_mod_df,
-    pred_probs = species_mod_df$pred_probs
-  ))
+    pred_probs = species_mod_df$pred_probs,
+    used_covars = final_covars,
+    summary = model_summary,
+    coef = model_coef,
+    odds = model_odds
+  )
+  
+  assign(paste0(alpha_code, "_multinom"), result, envir = .GlobalEnv)
+  message(paste0("Model for ", species_name, " (", alpha_code, ") completed and saved as ", alpha_code, "_multinom"))
+  
+  return(result)
 }
 
 
 ### --- APPLY, INSPECT --- ###
 
-rbwo_multinom_results <- Model_multinomial("Red-bellied Woodpecker") # select species to run
-
-summary(rbwo_multinom_results$model)
-coef(rbwo_multinom_results$model)
-exp(coef(rbwo_multinom_results$model))
-
-head(rbwo_multinom_results$data) # view combined data
-
-head(rbwo_multinom_results$pred_probs) # predicted probs per block
-
-
-
-
-
-
-
-
-
-
-
-
-### RCKI ###
-# Combine species detection data and modeling covariates from summary data
-rcki_multinom_mod <- rcki_dets_summary %>%
-  left_join(
-    wibba_summary_comp %>%
-      dplyr::select(
-        atlas_block,
-        pa_z,
-        lat_z,
-        lon_z,
-        srA1_resid,
-        srA2_resid,
-        developed_total_z,
-        forest_total_z,
-        grass_pasture_crop_z,
-        wetlands_total_z
-      ),
-    by = "atlas_block"
-  )
-
-# Factorize response variable, set model baseline/ref
-rcki_multinom_mod <- rcki_multinom_mod %>%
-  mutate(
-    transition_state = factor(transition_state),
-    transition_state = relevel(transition_state, ref = "Absence")  
-  )
-
-# Set up model
-mod_rcki <- multinom(
-  transition_state ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
-    developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
-  data = rcki_multinom_mod
+rbwo_multinom <- Model_multinomial(
+  species_name = "Red-bellied Woodpecker", # select species to run
+  min_cov_pct = 0.02,    # only include landcover >=2% of blocks
+  min_change_pct = 0.01  # only include change >=1% across blocks
 )
 
-summary(mod_rcki)
-coef(mod_rcki)
-exp(coef(mod_rcki))
+summary(rbwo_multinom$model)
+rbwo_multinom$used_covars
+coef(rbwo_multinom$model)
+exp(coef(rbwo_multinom$model))
 
-rcki_multinom_mod$pred_probs <- predict(mod_rcki, type = "probs")
+head(rbwo_multinom$data) # view combined data
 
-
-
-### RBWO ###
-# Combine species detection data and modeling covariates from summary data
-rbwo_multinom_mod <- rbwo_dets_summary %>%
-  left_join(
-    wibba_summary_comp %>%
-      dplyr::select(
-        atlas_block,
-        pa_z,
-        lat_z,
-        lon_z,
-        srA1_resid,
-        srA2_resid,
-        developed_total_z,
-        forest_total_z,
-        grass_pasture_crop_z,
-        wetlands_total_z
-      ),
-    by = "atlas_block"
-  )
-
-# Factorize response variable, set model baseline/ref
-rbwo_multinom_mod <- rbwo_multinom_mod %>%
-  mutate(
-    transition_state = factor(transition_state),
-    transition_state = relevel(transition_state, ref = "Absence")  
-  )
-
-# Set up model
-mod_rbwo <- multinom(
-  transition_state ~ pa_z + lat_z + lon_z + srA1_resid + srA2_resid +
-    developed_total_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z,
-  data = rbwo_multinom_mod
-)
-
-summary(mod_rbwo)
-coef(mod_rbwo)
-exp(coef(mod_rbwo))
-
-rbwo_multinom_mod$pred_probs <- predict(mod_rbwo, type = "probs")
+head(rbwo_multinom$pred_probs) # predicted probs per block
 
 
 

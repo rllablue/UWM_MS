@@ -2,23 +2,30 @@
 ### MISC CODE CHUNKS ###
 ########################
 
+### --- CLIMATE PROXY --- ###
+# Longitude, Latitude centroids from atlas blocks as climate proxies
 
-
-
-
-
-# Join to WIBBA summary
+# Real and z-standard lat and lon values 
+# z-standard. for mock-up model/climate effects proxy / will use real for spatial autocorrection
 wibba_summary_comp <- wibba_summary_comp %>%
   left_join(
-    land_summary_comp %>% 
-      dplyr::select(atlas_block, ends_with("_diff_z")),
+    blocks_comp_shp_5070 %>%
+      mutate(centroid = st_centroid(geometry)) %>% # compute centroids
+      mutate(lon = st_coordinates(centroid)[,1], # extract centroid longitude
+             lat = st_coordinates(centroid)[,2]) %>% # extract centroid latitude
+      st_drop_geometry() %>% # drop geometry for join
+      dplyr::select(atlas_block, lon, lat), # keep only needed cols
     by = "atlas_block"
+  ) %>%
+  mutate(
+    lon_z = as.numeric(scale(lon)), # z-standardized longitude
+    lat_z = as.numeric(scale(lat)) # z-standardized latitude
   )
 
 
 
-# --- ELEVATION DATA (NED) --- #
-# mean elevation per block done in ArcPro (1/3 arc-sec DEMs,~10m)
+### --- ELEVATION DATA (NED) --- ###
+# Mean elevation per block done in ArcPro (1/3 arc-sec DEMs,~10m)
 
 elevation_summary <- read_csv("maps/ned/ned_wibba_table.csv") # read in data calc'd in ArcPro
 

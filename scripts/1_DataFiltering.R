@@ -189,6 +189,9 @@ wibba_summary_comp <- wibba_summary_full %>%
     sr_Atlas2 > 0
   )
 
+sr_summary_comp <- sr_summary %>%
+  filter(atlas_block %in% blocks_comp)
+
 blocks_comp <- wibba_summary_comp$atlas_block
 
 checklists_comp <- checklists_filt %>%

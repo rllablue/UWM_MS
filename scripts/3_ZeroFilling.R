@@ -20,17 +20,6 @@ library(units)
 ### SPECIES SELECTION ###
 #########################
 
-# Tally counts of all species across, for each Atlas period
-species_counts_summary <- observations_comp %>% 
-  count(common_name, atlas_period, name = "n_obs") %>% 
-  group_by(common_name) %>% 
-  summarise(
-    obs_Atlas1 = sum(n_obs[atlas_period == "Atlas1"], na.rm = TRUE),
-    obs_Atlas2 =sum(n_obs[atlas_period == "Atlas2"], na.rm = TRUE),
-    obs_Total = sum(n_obs,na.rm = TRUE),
-    .groups = "drop"
-  )
-
 # Tally counts of breeding species across, for each Atlas period
 breeders_counts_summary <- observations_comp %>% 
   filter(

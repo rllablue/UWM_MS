@@ -2,28 +2,6 @@
 ### MISC CODE CHUNKS ###
 ########################
 
-### --- CLIMATE PROXY --- ###
-# Longitude, Latitude centroids from atlas blocks as climate proxies
-
-# Real and z-standard lat and lon values 
-# z-standard. for mock-up model/climate effects proxy / will use real for spatial autocorrection
-wibba_summary_comp <- wibba_summary_comp %>%
-  left_join(
-    blocks_comp_shp_5070 %>%
-      mutate(centroid = st_centroid(geometry)) %>% # compute centroids
-      mutate(lon = st_coordinates(centroid)[,1], # extract centroid longitude
-             lat = st_coordinates(centroid)[,2]) %>% # extract centroid latitude
-      st_drop_geometry() %>% # drop geometry for join
-      dplyr::select(atlas_block, lon, lat), # keep only needed cols
-    by = "atlas_block"
-  ) %>%
-  mutate(
-    lon_z = as.numeric(scale(lon)), # z-standardized longitude
-    lat_z = as.numeric(scale(lat)) # z-standardized latitude
-  )
-
-
-
 ### --- ELEVATION DATA (NED) --- ###
 # Mean elevation per block done in ArcPro (1/3 arc-sec DEMs,~10m)
 
@@ -47,7 +25,13 @@ wibba_summary <- wibba_summary %>%
 
 
 
-## GEOGRAPHIC FILTER ## (UNNEEDED FOR WIBBA)
+### --- GEOGRAPHIC FILTER --- ###
+
+### Locates checklists within Atlas block grid by lat, lon coordinates and 
+# assigns missing block IDs to checklists, observations. 
+# Uneeded for WIBBA.
+
+
 # geographic filtering, clean-up
 wibba_grid <- read_sf("maps/wibba blocks/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # read in atlas grid shape file
   st_transform(4269) # convert to NAD83, crs of shp file

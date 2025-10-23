@@ -85,7 +85,7 @@ Extract_landcover <- function(nlcd_raster, blocks_sf, year_suffix) {
         group_by(class) %>%
         summarize(class_cover = sum(coverage, na.rm = TRUE), .groups = "drop") %>%
         mutate(atlas_block = .y,
-               percent_cover = 100 * class_cover / sum(class_cover))
+          percent_cover = 100 * class_cover / sum(class_cover))
     }
   )
   
@@ -98,7 +98,9 @@ Extract_landcover <- function(nlcd_raster, blocks_sf, year_suffix) {
       names_prefix = "nlcd_"
     ) %>%
     mutate(
-      across(starts_with("nlcd_"), ~replace_na(.x, 0))
+      across(
+        starts_with("nlcd_"), ~replace_na(.x, 0)
+      )
     ) %>%
     rename(
       water_open        = nlcd_11,
@@ -128,15 +130,20 @@ Extract_landcover <- function(nlcd_raster, blocks_sf, year_suffix) {
   
   # Z-score both individual and grouped columns
   landcover_z <- landcover_named %>%
-    mutate(across(
+    mutate(
+      across(
       .cols = -atlas_block,
       .fns = ~ { z <- as.numeric(scale(.)); z[is.na(z)] <- 0; z },
       .names = "{.col}_z"
-    ))
+      )
+    )
   
   # Combine raw + z, append year suffix
-  final_df <- landcover_z %>%
-    rename_with(~ paste0(., "_", year_suffix), -atlas_block)
+  final_df <- landcover_named %>%
+    rename_with(~ paste0(., "_", year_suffix), -atlas_block) %>%
+    left_join(
+      dplyr::select(landcover_z, atlas_block, ends_with("_z")), by = "atlas_block"
+    )
   
   return(final_df)
 }
@@ -154,7 +161,7 @@ Parallel_land2008 <- future({ # Assign process to run in parallel
   Extract_landcover(
     nlcd_raster = wi_nlcd_2008_rast,
     blocks_sf = blocks_comp_shp,
-    year_suffix = "08"
+    year_suffix = "2008"
   )
 })
 
@@ -199,7 +206,7 @@ crs(wi_nlcd_2015_rast) <- crs(wi_nlcd_2015_crs3071)
 ### EXTRACTION ###
 
 # Function to extract land cover per block
-Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_suffix) {
+Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_suffix = c("1995", "2015")) {
   
   # Extract single raster
   Extract_single <- function(nlcd_raster, blocks_sf) {
@@ -207,8 +214,7 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_s
     valid_classes <- c(11, 21, 22, 23, 24, 31, 41, 42, 43, 52, 71, 81, 82, 90, 95)
     
     landcover_summary <- purrr::map2_dfr(
-      nlcd_extract,
-      blocks_sf$atlas_block,
+      nlcd_extract, blocks_sf$atlas_block,
       ~ {
         tibble(class = .x$value, coverage = .x$coverage_fraction) %>%
           filter(class %in% valid_classes) %>%
@@ -229,7 +235,9 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_s
         names_prefix = "nlcd_"
       ) %>%
       mutate(
-        across(starts_with("nlcd_"), ~replace_na(.x, 0))
+        across(
+          starts_with("nlcd_"), ~replace_na(.x, 0)
+        )
       ) %>%
       rename(
         water_open        = nlcd_11,
@@ -259,69 +267,57 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_s
     
     # Z-standardize
     landcover_z <- landcover_named %>%
-      mutate(across(
-        .cols = -atlas_block,
-        .fns = ~ { z <- as.numeric(scale(.)); z[is.na(z)] <- 0; z },
-        .names = "{.col}_z"
-      ))
+      mutate(
+        across(.cols = -atlas_block, 
+               .fns = ~ { z <- as.numeric(scale(.)); z[is.na(z)] <- 0; z }, 
+               .names = "{.col}_z")
+      )
     
-    # Combine raw + z, append year suffix
-    final_df <- landcover_z %>%
-      rename_with(~ paste0(., "_", year_suffix), -atlas_block)
-    
-    return(final_df)
+    left_join(landcover_named, dplyr::select(landcover_z, atlas_block, ends_with("_z")), by = "atlas_block")
   }
   
-  # Extract early, late years
-  land_early <- Extract_single(raster_early, blocks_sf, years_suffix[1])
-  land_late  <- Extract_single(raster_late,  blocks_sf, years_suffix[2])
+  ys_early <- years_suffix[1]
+  ys_late  <- years_suffix[2]
   
-  # Compute differences
+  land_early <- Extract_single(raster_early, blocks_sf)
+  land_late  <- Extract_single(raster_late,  blocks_sf)
+  
+  land_early <- rename_with(land_early, ~ paste0(., "_", ys_early), -atlas_block)
+  land_late  <- rename_with(land_late,  ~ paste0(., "_", ys_late), -atlas_block)
+  
+  base_vars <- c(
+    "water_open", "developed_open", "developed_low", "developed_med", "developed_high",
+    "barren_land", "forest_deciduous", "forest_evergreen", "forest_mixed",
+    "shrub_scrub", "grassland", "pasture", "cropland",
+    "wetlands_woody", "wetlands_herb",
+    "developed_lower","developed_upper","pasture_crop",
+    "developed_total","forest_total","wetlands_total"
+  )
+  
+  # Calculate differences
   land_diff <- land_early %>%
-    inner_join(land_late, by = "atlas_block", suffix = c("_early", "_late")) %>%
-    # Individual diffs
-    mutate(
-      water_open_diff       = water_open_late       - water_open_early,
-      developed_open_diff   = developed_open_late   - developed_open_early,
-      developed_low_diff    = developed_low_late    - developed_low_early,
-      developed_med_diff    = developed_med_late    - developed_med_early,
-      developed_high_diff   = developed_high_late   - developed_high_early,
-      barren_land_diff      = barren_land_late      - barren_land_early,
-      forest_deciduous_diff = forest_deciduous_late - forest_deciduous_early,
-      forest_evergreen_diff = forest_evergreen_late - forest_evergreen_early,
-      forest_mixed_diff     = forest_mixed_late     - forest_mixed_early,
-      shrub_scrub_diff      = shrub_scrub_late      - shrub_scrub_early,
-      grassland_diff        = grassland_late        - grassland_early,
-      pasture_diff          = pasture_late          - pasture_early,
-      cropland_diff         = cropland_late         - cropland_early,
-      wetlands_woody_diff   = wetlands_woody_late   - wetlands_woody_early,
-      wetlands_herb_diff    = wetlands_herb_late    - wetlands_herb_early
-    ) %>%
-    # Grouped diffs
-     mutate(
-      developed_lower_diff    = developed_open_diff + developed_low_diff,
-      developed_upper_diff    = developed_med_diff + developed_high_diff,
-      pasture_crop_diff       = pasture_diff + cropland_diff,
-      developed_total_diff    = developed_open_diff + developed_low_diff + developed_med_diff + developed_high_diff,
-      forest_total_diff       = forest_deciduous_diff + forest_evergreen_diff + forest_mixed_diff,
-      wetlands_total_diff     = wetlands_woody_diff + wetlands_herb_diff
-    ) %>%
-    # Z-standardize
-    mutate(
-      across(
-        .cols = ends_with("_diff"),
-        .fns = ~ as.numeric(scale(.)),
-        .names = "{.col}_z"
-      )
-    )
+    inner_join(land_late, by = "atlas_block")
+  
+  for(var in base_vars){
+    land_diff[[paste0(var, "_diff")]] <- land_diff[[paste0(var, "_", ys_late)]] - land_diff[[paste0(var, "_", ys_early)]]
+  }
+  
+  # Z-standardize
+  diff_cols <- paste0(base_vars, "_diff")
+  for(col in diff_cols){
+    land_diff[[paste0(col, "_z")]] <- scale(land_diff[[col]]) %>% as.numeric()
+    land_diff[[paste0(col, "_z")]][is.na(land_diff[[paste0(col, "_z")]])] <- 0
+  }
+  
+  land_diff <- land_diff %>%
+    dplyr::select(atlas_block, ends_with("_diff"), ends_with("_diff_z"))
   
   # Return all three dfs
-  return(list(
+  list(
     landcover_early = land_early,
     landcover_late  = land_late,
-    landcover_diff  = land_diff %>%
-      select(atlas_block, ends_with("_diff"), ends_with("_diff_z"))
-  ))
+    landcover_diff  = land_diff
+  )
 }
 
 
@@ -336,35 +332,37 @@ Parallel_land9515 <- future({
   Extract_landcover_diff(
     raster_early = wi_nlcd_1995_rast,
     raster_late  = wi_nlcd_2015_rast,
-    blocks_sf    = blocks_comp_shp,
-    years_suffix = c("1995", "2015")
+    blocks_sf    = blocks_comp_shp
   )
 })
 
 resolved(Parallel_land9515)
 
-landcover_summary_comp <- value(Parallel_land9515)
-
+landcover_summary_9515 <- value(Parallel_land9515)
 
 
 ### --- SUMMARIZE --- ###
 
 # Join to landcover df for all reference years
-landcover_summary_comp <- landcover_summary_2008 %>%
-  left_join(landcover_summary_9515$landcover_early, by = "atlas_block") %>%
-  left_join(landcover_summary_9515$landcover_late, by = "atlas_block") %>%
-  left_join(landcover_summary_9515$landcover_diff, by = "atlas_block")
+landcover_summary_comp <- dplyr::bind_rows(
+  landcover_summary_9515$landcover_early  %>% mutate(period = "landcover_1995"),
+  landcover_summary_9515$landcover_late   %>% mutate(period = "landcover_2015"),
+  landcover_summary_9515$landcover_diff   %>% mutate(period = "landcover_diff"),
+  landcover_summary_2008                  %>% mutate(period = "landcover_2008")
+)
 
 # Join to modeling df (z-standardized values)
 wibba_modeling_comp <- wibba_modeling_comp %>%
+  # 2008 z values
   left_join(
-    landcover_summary_comp$landcover_2008 %>% # join 2008 landcover z values
-      select(atlas_block, ends_with("_z_08")),
+    landcover_summary_2008 %>%
+      dplyr::select(atlas_block, ends_with("_z")),
     by = "atlas_block"
   ) %>%
+  # 1995–2015 difference z values
   left_join(
-    landcover_summary_comp$landcover_diff %>% # join difference z values (1995–2015)
-      select(atlas_block, ends_with("_diff_z")),
+    landcover_summary_9515$landcover_diff %>%
+      dplyr::select(atlas_block, ends_with("_z")),
     by = "atlas_block"
   )
 

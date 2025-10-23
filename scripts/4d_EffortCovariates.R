@@ -32,17 +32,28 @@ wibba_modeling_comp <- wibba_modeling_comp %>%
       by = "atlas_block"
   )
 
-# Fit models on un-standardized SR ################################## DECIDE WHICH COVARS TO PUT IN HERE ##################
-mod_srA1 <- lm(sr_Atlas1 ~ pa_z + developed_lower_z_08 + developed_upper_z_08 + forest_total_z + grass_pasture_crop_z + wetlands_total_z, data = wibba_modeling_comp)
-mod_srA2 <- lm(sr_Atlas2 ~ pa_z + developed_lower_z + developed_upper_z + forest_total_z + grass_pasture_crop_z + wetlands_total_z, data = wibba_modeling_comp)
+# Fit models on un-standardized SR
+# Use grouped land cover covariates, climate proxy covariates for ease
+mod_srA1 <- lm(sr_Atlas1 ~ pa_z + water_open_z + shrub_scrub_z + grassland_z + developed_total_z + forest_total_z + wetlands_total_z + lat_z + lon_z, data = wibba_modeling_comp)
+mod_srA2 <- lm(sr_Atlas2 ~ pa_z + water_open_z + shrub_scrub_z + grassland_z + developed_total_z + forest_total_z + wetlands_total_z + lat_z + lon_z, data = wibba_modeling_comp)
 
-# Extract residuals, standardize, add to summary
-wibba_modeling_comp <- wibba_modeling_comp %>%
+# Extract residuals, standardize, add to summaries
+sr_resids <- wibba_modeling_comp %>%
   mutate(
     srA1_resid = resid(mod_srA1),
     srA2_resid = resid(mod_srA2),
     srA1_resid_z = as.numeric(scale(srA1_resid)),
     srA2_resid_z = as.numeric(scale(srA2_resid))
-  )
+  ) %>%
+  dplyr::select(atlas_block, srA1_resid, srA2_resid, srA1_resid_z, srA2_resid_z)
 
-# Add resids to sr_summary_comp
+sr_summary_comp <- sr_summary_comp %>%
+  left_join(sr_resids, by = "atlas_block")
+
+wibba_modeling_comp <- wibba_modeling_comp %>%
+  mutate(
+    srA1_resid_z = sr_resids$srA1_resid_z,
+    srA2_resid_z = sr_resids$srA2_resid_z
+  ) %>%
+  dplyr::select(-sr_Atlas1, -sr_Atlas2)
+

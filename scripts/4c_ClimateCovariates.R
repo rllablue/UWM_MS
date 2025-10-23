@@ -185,3 +185,25 @@ climate_summary_comp <- value(Parallel_climate)
 # Join to modeling df
 wibba_modeling_comp <- wibba_modeling_comp %>%
   left_join(climate_summary_comp, by = "atlas_block")
+
+###############
+### PROXIES ###
+###############
+
+### --- CLIMATE PROXY --- ###
+# Longitude, Latitude centroids from atlas blocks as climate proxies
+
+# Real and z-standard lat and lon values 
+# Proxies to be used in SR residual regression
+wibba_modeling_comp <- wibba_modeling_comp %>%
+  left_join(
+    blocks_comp_shp_5070 %>%
+      st_centroid() %>% # compute centroids
+      dplyr::mutate(
+        lon_z = scale(st_coordinates(.)[,1]) %>% as.numeric(), # z-standardized lon
+        lat_z = scale(st_coordinates(.)[,2]) %>% as.numeric() # z-standardized lat
+      ) %>%
+      st_drop_geometry() %>%                     
+      dplyr::select(atlas_block, lon_z, lat_z), # keep only z columns
+    by = "atlas_block"
+  )

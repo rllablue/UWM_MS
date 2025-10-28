@@ -190,9 +190,8 @@ wibba_modeling_covars <- wibba_modeling_covars %>%
 
 ### --- CLIMATE PROXY --- ###
 # Longitude, Latitude centroids from atlas blocks as climate proxies
-
-# Real and z-standard lat and lon values 
 # Proxies to be used in SR residual regression
+
 wibba_modeling_comp <- wibba_modeling_comp %>%
   left_join(
     blocks_comp_shp_5070 %>%

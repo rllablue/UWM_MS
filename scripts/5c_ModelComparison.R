@@ -35,22 +35,6 @@ library(RColorBrewer)
 
 
 
-###########################
-### COVARIATE SELECTION ###
-###########################
-
-### Use penalized regression techniques and other threshold structures for 
-# determining which covariate sets to use for each species in modeling protocol
-
-
-
-
-
-
-
-
-
-
 ########################
 ### MODEL COMPARISON ###
 ########################

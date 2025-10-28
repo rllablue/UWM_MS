@@ -95,9 +95,6 @@ Extract_climate <- function(files_list,
         !!paste0(metric, "_38yr") := mean(.data[[metric]], na.rm = TRUE),
         n_years = dplyr::n(),
         .groups = "drop"
-      ) %>%
-      dplyr::mutate(
-        !!paste0(metric, "_38yr_z") := as.numeric(scale(.data[[paste0(metric, "_38yr")]]))
       )
     
     # Period means (18 years each)
@@ -123,17 +120,16 @@ Extract_climate <- function(files_list,
       ) %>%
       dplyr::mutate(
         !!paste0(metric, "_diff") := .data[[paste0(metric, "_t2")]] - .data[[paste0(metric, "_t1")]],
-        !!paste0(metric, "_diff_z") := as.numeric(scale(.data[[paste0(metric, "_diff")]]))
       )
     
     # Join to modeling df
     wibba_out <- wibba_out %>%
       dplyr::left_join(
-        dplyr::select(longterm_df, atlas_block, !!paste0(metric, "_38yr_z")),
+        dplyr::select(longterm_df, atlas_block),
         by = "atlas_block"
       ) %>%
       dplyr::left_join(
-        dplyr::select(period_df, atlas_block, !!paste0(metric, "_diff_z")),
+        dplyr::select(period_df, atlas_block),
         by = "atlas_block"
       )
   }
@@ -169,7 +165,7 @@ Parallel_climate <- future({
   Extract_climate(
     files_list = files_list,
     blocks_shp = blocks_comp_daymet_shp,
-    wibba_df = wibba_modeling_comp,
+    wibba_df = wibba_modeling_covars,
     metrics = c("tmax", "tmin", "prcp")
   )
 })
@@ -180,11 +176,13 @@ resolved(Parallel_climate)
 
 # SUMMARIZE #
 # Join all metrics to summary df
-climate_summary_comp <- value(Parallel_climate)
+climate_summary_covars <- value(Parallel_climate)
 
 # Join to modeling df
-wibba_modeling_comp <- wibba_modeling_comp %>%
-  left_join(climate_summary_comp, by = "atlas_block")
+wibba_modeling_covars <- wibba_modeling_covars %>%
+  left_join(climate_summary_covars, by = "atlas_block")
+
+
 
 ###############
 ### PROXIES ###

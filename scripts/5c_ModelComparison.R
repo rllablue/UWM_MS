@@ -11,7 +11,7 @@ library(magrittr)
 library(purrr)
 library(stringr)
 
-# Model fitting, evaluation
+# Model and covariate fitting, evaluation
 library(nnet)
 library(stats)
 library(broom)
@@ -21,6 +21,8 @@ library(DescTools)
 library(Metrics)
 library(pROC)
 library(rsample)
+library(glmnet)
+library(forcats)
 
 # Spatial
 library(sf)
@@ -30,6 +32,22 @@ library(units)
 library(ggplot2)
 library(viridis)
 library(RColorBrewer)
+
+
+
+###########################
+### COVARIATE SELECTION ###
+###########################
+
+### Use penalized regression techniques and other threshold structures for 
+# determining which covariate sets to use for each species in modeling protocol
+
+
+
+
+
+
+
 
 
 

@@ -52,16 +52,15 @@ blocks_pad_summary_diss <- st_intersection(blocks_comp_shp_5070, pad_wi_diss) %>
     pa_area = if_else(is.na(pa_area), units::set_units(0, m^2), pa_area),
     block_area_km2 = units::set_units(block_area, "m^2") %>% units::set_units("km^2"),
     pa_area_km2 = units::set_units(pa_area, "m^2") %>% units::set_units("km^2"),
-    pa_percent = as.numeric(pa_area_km2 / block_area_km2 * 100),
-    pa_z = as.numeric(scale(pa_percent))
+    pa_percent = as.numeric(pa_area_km2 / block_area_km2 * 100)
   ) %>%
-  dplyr::select(atlas_block, pa_area_km2, block_area_km2, pa_percent, pa_z)
+  dplyr::select(atlas_block, pa_area_km2, block_area_km2, pa_percent)
 
 
 # Join to modeling df
-wibba_modeling_comp <- wibba_modeling_comp %>% 
+wibba_modeling_covars <- wibba_modeling_covars %>% 
   left_join(
-    blocks_pad_summary_diss %>% dplyr::select(atlas_block, pa_z),
+    blocks_pad_summary_diss %>% dplyr::select(atlas_block, pa_percent),
     by = "atlas_block"
   ) %>%
   dplyr::select(-geometry)

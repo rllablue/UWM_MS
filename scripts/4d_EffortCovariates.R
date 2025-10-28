@@ -25,7 +25,7 @@ library(purrr)
 # "colonization" since high effort means lowers probability of true non-detection.
 
 # Put raw SR into the modeling df
-wibba_modeling_comp <- wibba_modeling_comp %>%
+wibba_modeling_covars <- wibba_modeling_covars %>%
   left_join(
     sr_summary_comp %>%
       dplyr::select(atlas_block, sr_Atlas1, sr_Atlas2),

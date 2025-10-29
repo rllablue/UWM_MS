@@ -124,14 +124,8 @@ Extract_climate <- function(files_list,
     
     # Join to modeling df
     wibba_out <- wibba_out %>%
-      dplyr::left_join(
-        dplyr::select(longterm_df, atlas_block),
-        by = "atlas_block"
-      ) %>%
-      dplyr::left_join(
-        dplyr::select(period_df, atlas_block),
-        by = "atlas_block"
-      )
+      dplyr::left_join(longterm_df, by = "atlas_block") %>%
+      dplyr::left_join(period_df, by = "atlas_block")
   }
   
   return(wibba_out)
@@ -190,17 +184,17 @@ wibba_modeling_covars <- wibba_modeling_covars %>%
 
 ### --- CLIMATE PROXY --- ###
 # Longitude, Latitude centroids from atlas blocks as climate proxies
-# Proxies to be used in SR residual regression
+# Proxies to be used in SR residual regression as climate/geographic gradient proxy
 
-wibba_modeling_comp <- wibba_modeling_comp %>%
+wibba_modeling_covars <- wibba_modeling_covars %>%
   left_join(
     blocks_comp_shp_5070 %>%
-      st_centroid() %>% # compute centroids
+      st_centroid() %>%  # compute centroids
       dplyr::mutate(
-        lon_z = scale(st_coordinates(.)[,1]) %>% as.numeric(), # z-standardized lon
-        lat_z = scale(st_coordinates(.)[,2]) %>% as.numeric() # z-standardized lat
+        lon = st_coordinates(.)[,1], # raw longitude
+        lat = st_coordinates(.)[,2]  # raw latitude
       ) %>%
-      st_drop_geometry() %>%                     
-      dplyr::select(atlas_block, lon_z, lat_z), # keep only z columns
+      st_drop_geometry() %>%
+      dplyr::select(atlas_block, lon, lat),  # keep raw coords only
     by = "atlas_block"
   )

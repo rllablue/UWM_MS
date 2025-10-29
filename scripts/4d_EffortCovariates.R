@@ -33,22 +33,37 @@ wibba_modeling_covars <- wibba_modeling_covars %>%
   )
 
 
-# Z-scale relevant covars for residual regression
+# Extract relevant covars for residual regression, z-scale
 covars_for_sr <- wibba_modeling_covars %>%
   dplyr::select(
     atlas_block,
-    pa, water_open_2008, shrub_scrub_2008, grassland_2008,
+    pa_percent, water_open_2008, shrub_scrub_2008, grassland_2008,
     developed_total_2008, forest_total_2008, wetlands_total_2008,
     lat, lon
   )
 
+covars_for_sr <- covars_for_sr %>%
+  mutate(
+    across(
+      .cols = -atlas_block,   
+      .fns = ~ as.numeric(scale(.x)),    
+      .names = "{.col}_z"
+    )
+  )
+
+covars_for_sr <- covars_for_SR %>%
+  left_join(
+  sr_summary_comp %>%
+    dplyr::select(atlas_block, sr_Atlas1, sr_Atlas2),
+  by = "atlas_block"
+)
 
 # Fit models on un-standardized SR
 # Use grouped land cover covariates, climate proxy covariates for ease
-mod_srA1 <- lm(sr_Atlas1 ~ pa_z + water_open_z + shrub_scrub_z + grassland_z + developed_total_z + forest_total_z + wetlands_total_z + lat_z + lon_z, data = covars_for_sr)
-mod_srA2 <- lm(sr_Atlas2 ~ pa_z + water_open_z + shrub_scrub_z + grassland_z + developed_total_z + forest_total_z + wetlands_total_z + lat_z + lon_z, data = covars_for_sr)
+mod_srA1 <- lm(sr_Atlas1 ~ pa_percent_z + water_open_2008_z + shrub_scrub_2008_z + grassland_2008_z + developed_total_2008_z + forest_total_2008_z + wetlands_total_2008_z + lat_z + lon_z, data = covars_for_sr)
+mod_srA2 <- lm(sr_Atlas2 ~ pa_percent_z + water_open_2008_z + shrub_scrub_2008_z + grassland_2008_z + developed_total_2008_z + forest_total_2008_z + wetlands_total_2008_z + lat_z + lon_z, data = covars_for_sr)
 
-# Extract residuals, standardize, add to summaries
+# Extract residuals, add to summaries
 sr_resids <- covars_for_sr %>%
   mutate(
     srA1_resid = resid(mod_srA1),

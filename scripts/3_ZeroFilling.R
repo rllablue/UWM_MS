@@ -35,11 +35,6 @@ breeders_counts_summary <- observations_comp %>%
   )
 
 
-# Develop minimum # of observations to be usable in modeling - WIP
-
-
-
-
 
 ####################
 ### ZERO-FILLING ###

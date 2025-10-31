@@ -24,7 +24,7 @@ library(corrplot)
 
 # Create new df with only covariate values to be used in modeling 
 wibba_modeling_covars <- wibba_summary_comp %>%
-  dplyr::select(atlas_block)
+  dplyr::select(atlas_block, transition_state)
 
 
 ### --- FUNCTIONS --- ###

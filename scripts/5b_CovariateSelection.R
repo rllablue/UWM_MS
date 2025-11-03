@@ -57,12 +57,12 @@ wibba_mod_covars_z <- wibba_modeling_covars %>% # z-scaled covars df
 
 
 # Species-specific covar, detection df
-spp_name <- "Common Loon"
+spp_name <- "Red-bellied Woodpecker"
 
 spp_mod_data <- breeders_zf_summary %>%
   filter(common_name == spp_name) %>%
   left_join(
-    wibba_mod_covars_z %>% select(-transition_state),
+    wibba_mod_covars_z %>% dplyr::select(-transition_state),
     by = "atlas_block"
   ) %>%
   mutate(

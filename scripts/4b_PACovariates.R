@@ -58,7 +58,7 @@ blocks_pad_summary_diss <- st_intersection(blocks_comp_shp_5070, pad_wi_diss) %>
 
 
 # Join to modeling df
-wibba_modeling_covars <- wibba_modeling_covars %>% 
+wibba_covars_raw <- wibba_covars_raw %>% 
   left_join(
     blocks_pad_summary_diss %>% dplyr::select(atlas_block, pa_percent),
     by = "atlas_block"

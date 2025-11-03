@@ -33,7 +33,7 @@ wibba_modeling_covars <- wibba_modeling_covars %>%
   )
 
 
-# Extract relevant covars for residual regression, z-scale
+# Extract relevant covars for residual regression, z-scale ################### Note: Refine this list? Also how to scale? (global vs response-subset block data)
 covars_for_sr <- wibba_modeling_covars %>%
   dplyr::select(
     atlas_block,

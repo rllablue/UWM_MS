@@ -23,8 +23,8 @@ library(corrplot)
 ## -- DATAFRAMES --- ###
 
 # Create new df with only covariate values to be used in modeling 
-wibba_modeling_covars <- wibba_summary_comp %>%
-  dplyr::select(atlas_block, transition_state)
+wibba_covars_raw <- wibba_summary_comp %>%
+  dplyr::select(atlas_block)
 
 
 ### --- FUNCTIONS --- ###
@@ -298,14 +298,17 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_s
 }
 
 
-### --- APPLY --- ###
+
+### --- APPLY --- ################################# Note: need to fix above function to not include 2015, 1995 values in _diff df
+# List with all data
 landcover_9515 <- Extract_landcover_diff(
     raster_early = wi_nlcd_1995_rast,
     raster_late  = wi_nlcd_2015_rast,
     blocks_sf    = blocks_comp_shp
 )
   
-  
+
+
 
 # OPTIONAL: PARALLELIZE PROCESS #
 
@@ -330,27 +333,26 @@ landcover_summary_9515 <- value(Parallel_land9515)
 
 ### --- SUMMARIZE --- ###
 
-# Join to landcover df for all reference years
-landcover_summary_covars <- dplyr::bind_rows(
-  landcover_9515$landcover_early  %>% mutate(period = "landcover_1995"),
-  landcover_9515$landcover_late   %>% mutate(period = "landcover_2015"),
-  landcover_9515$landcover_diff   %>% mutate(period = "landcover_diff"),
-  landcover_2008                  %>% mutate(period = "landcover_2008")
-)
+# List to dfs
+landcover_1995 <- landcover_9515[[1]]
+landcover_2015 <- landcover_9515[[2]]
+landcover_diff <- landcover_9515[[3]]
+  
+landcover_diff <- landcover_diff %>%
+  dplyr::select(-ends_with("_1995"), -ends_with("_2015"))
+
 
 # Join to modeling covariate df
-wibba_modeling_covars <- wibba_modeling_covars %>%
+wibba_covars_raw <- wibba_covars_raw %>%
   left_join(
-    landcover_summary_2008 %>%
-      dplyr::select(atlas_block, ends_with("_2008")),
+    landcover_2008 %>%
+      rename_with(~ str_replace(.x, "_2008$", "_base")),
     by = "atlas_block"
   ) %>%
   left_join(
-    landcover_summary_9515$landcover_diff %>%
-      dplyr::select(atlas_block, ends_with("_diff")),
+    landcover_diff,
     by = "atlas_block"
   )
-
 
 
 

@@ -168,12 +168,12 @@ Parallel_climate <- future({
 resolved(Parallel_climate)
 
 
-# SUMMARIZE #
+# SUMMARIZE ######################################### Note: fix above fx to not create many duplicate columns; suffixes to _baseyrs, _diffyrs
 # Join all metrics to summary df
 climate_summary_covars <- value(Parallel_climate)
 
 # Join to modeling df
-wibba_modeling_covars <- wibba_modeling_covars %>%
+wibba_covars_raw <- wibba_covars_raw %>%
   left_join(climate_summary_covars, by = "atlas_block")
 
 
@@ -186,7 +186,7 @@ wibba_modeling_covars <- wibba_modeling_covars %>%
 # Longitude, Latitude centroids from atlas blocks as climate proxies
 # Proxies to be used in SR residual regression as climate/geographic gradient proxy
 
-wibba_modeling_covars <- wibba_modeling_covars %>%
+wibba_covars_raw <- wibba_covars_raw %>%
   left_join(
     blocks_comp_shp_5070 %>%
       st_centroid() %>%  # compute centroids

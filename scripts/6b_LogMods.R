@@ -18,12 +18,11 @@ library(units)
 ### 3 LOGISTIC MODELS ###
 #########################
 
-spp_mod_data <- spp_mod_data %>% # create state identifiers
-  mutate(
-    is_colonization = ifelse(transition_state == "Colonization", 1, 0),
-    is_extinction   = ifelse(transition_state == "Extinction", 1, 0),
-    is_persistence  = ifelse(transition_state == "Presence", 1, 0)
-  )
+
+
+
+
+
 
 
 ###

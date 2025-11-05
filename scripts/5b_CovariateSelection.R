@@ -43,35 +43,6 @@ library(RColorBrewer)
 
 ### --- DATA WRANGLING --- ###
 
-# DATAFRAMES #
-# Z-scaled nmodeling covars
-wibba_mod_covars_z <- wibba_modeling_covars %>% # z-scaled covars df
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, ends_with("_z"))
-
-
-# Species-specific covar, detection df
-spp_name <- "Red-bellied Woodpecker"
-
-spp_mod_data <- breeders_zf_summary %>%
-  filter(common_name == spp_name) %>%
-  left_join(
-    wibba_mod_covars_z %>% dplyr::select(-transition_state),
-    by = "atlas_block"
-  ) %>%
-  mutate(
-    col = ifelse(det_Atlas1 == 0 & det_Atlas2 == 1, 1, 0),
-    per = ifelse(det_Atlas1 == 1 & det_Atlas2 == 1, 1, 0),
-    ext = ifelse(det_Atlas1 == 1 & det_Atlas2 == 0, 1, 0)
-  )
-
-
 # COVARIATES #
 # Combo base, diffs
 land_covars_all <- grep("_2008_z$|_diff_z$", names(spp_mod_data), value = TRUE)

@@ -173,6 +173,8 @@ rbwo_mod_extabs <- glm(ext_abs ~ pa_percent_z +
 summary(rbwo_mod_extabs)
 autoplot(rbwo_mod_extabs)
 
+
+
 # Col-Abs
 rbwo_mod_colabs <- glm(col_abs ~  pa_percent_z +
                          developed_lower_base_z + developed_upper_base_z + 
@@ -210,12 +212,14 @@ autoplot(rbwo_mod_extper)
 rbwo_vars_plot <- c(
   "pa_percent_z",
   "developed_lower_base_z",
+  "developed_upper_base_z",
   "forest_mixed_base_z",
   "forest_deciduous_base_z",
   "pasture_crop_base_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
-  "developed_total_diff_z"
+  "developed_total_diff_z",
+  "forest_total_diff_z"
 )
 
 
@@ -241,32 +245,22 @@ make_pred_df <- function(var_name, model, data, n = 100) {
 }
 
 
-### PLOT 
-facet_labels_col <- c(
-  pa_percent_z = "Protected Area (%)***",
-  tmax_38yr_z = "Max Temp (38-year avg)***",
-  prcp_38yr_z = "Precipitation (38-year avg)",
-  forest_deciduous_base_z = "Deciduous Forest***",
-  forest_mixed_base_z = "Mixed Forest***",
-  pasture_crop_base_z = "Pasture/Cropland*",
-  developed_lower_base_z = "Open/Lower Development***",
-  developed_total_diff_z = "Difference in Total Developed Land (%)"
-)
-
-
-facet_labels_ext <- c(
-  pa_percent_z = "Protected Area (%)",
-  tmax_38yr_z = "Max Temp (38-year avg)*",
-  prcp_38yr_z = "Precipitation (38-year avg)",
-  forest_deciduous_base_z = "Deciduous Forest",
-  forest_mixed_base_z = "Mixed Forest",
-  pasture_crop_base_z = "Pasture/Cropland .",
-  developed_lower_base_z = "Open/Lower Development",
-  developed_total_diff_z = "Difference in Total Developed Land (%)"
-)
-
+### PLOT ###
 
 # COL-PER
+facet_colper <- c(
+  pa_percent_z = "Protected Area",
+  developed_lower_base_z = "Open + Lower Development",
+  developed_upper_base_z = "Moderate + High Development",
+  forest_mixed_base_z = "Mixed Forest ***",
+  forest_deciduous_base_z = "Deciduous Forest .",
+  pasture_crop_base_z = "Pasture/Cropland",
+  tmax_38yr_z = "Max Temp ***",
+  prcp_38yr_z = "Precipitation",
+  developed_total_diff_z = "Difference in Total Developed Land",
+  forest_total_diff_z = "Difference in Total Forest"
+)
+
 rbwo_predplot_colper_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
                         model = rbwo_mod_colper, 
                         data = data_colper_z)
@@ -276,7 +270,7 @@ ggplot(rbwo_predplot_colper_df, aes(x = x_value, y = pred_prob)) +
   geom_line(linewidth = 1) +
   facet_wrap(~ variable, 
              scales = "free_x",
-             labeller = labeller(variable = facet_labels_col)) +
+             labeller = labeller(variable = facet_colper)) +
   theme_minimal(base_size = 14) +
   labs(
     x = "Standardized Covariate Value (z-score)",
@@ -286,6 +280,19 @@ ggplot(rbwo_predplot_colper_df, aes(x = x_value, y = pred_prob)) +
 
 
 # EXT-ABS
+facet_extabs <- c(
+  pa_percent_z = "Protected Area",
+  developed_lower_base_z = "Open + Lower Development",
+  developed_upper_base_z = "Moderate + High Development",
+  forest_mixed_base_z = "Mixed Forest **",
+  forest_deciduous_base_z = "Deciduous Forest",
+  pasture_crop_base_z = "Pasture/Cropland",
+  tmax_38yr_z = "Max Temp ***",
+  prcp_38yr_z = "Precipitation",
+  developed_total_diff_z = "Difference in Total Developed Land",
+  forest_total_diff_z = "Difference in Total Forest"
+)
+
 rbwo_predplot_ext_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
                              model = rbwo_mod_ext, 
                              data = spp_mod_data_ext_z)
@@ -295,7 +302,7 @@ ggplot(rbwo_predplot_ext_df, aes(x = x_value, y = pred_prob)) +
   geom_line(linewidth = 1) +
   facet_wrap(~ variable, 
              scales = "free_x",
-             labeller = labeller(variable = facet_labels_ext)) +
+             labeller = labeller(variable = facet_extabs)) +
   theme_minimal(base_size = 14) +
   labs(
     x = "Standardized Covariate Value (z-score)",
@@ -303,7 +310,21 @@ ggplot(rbwo_predplot_ext_df, aes(x = x_value, y = pred_prob)) +
     title = "Marginal Effects of Covariates on Extinction Probability Across Blocks"
   )
 
+
 # COL-ABS
+facet_colabs <- c(
+  pa_percent_z = "Protected Area ***",
+  developed_lower_base_z = "Open + Lower Development ***",
+  developed_upper_base_z = "Moderate + High Development",
+  forest_mixed_base_z = "Mixed Forest ***",
+  forest_deciduous_base_z = "Deciduous Forest ***",
+  pasture_crop_base_z = "Pasture/Cropland *",
+  tmax_38yr_z = "Max Temp ***",
+  prcp_38yr_z = "Precipitation ***",
+  developed_total_diff_z = "Difference in Total Developed Land *",
+  forest_total_diff_z = "Difference in Total Forest"
+)
+
 rbwo_predplot_colabs_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
                                    model = rbwo_mod_colabs, 
                                    data = data_colabs_z)
@@ -313,7 +334,7 @@ ggplot(rbwo_predplot_colabs_df, aes(x = x_value, y = pred_prob)) +
   geom_line(linewidth = 1) +
   facet_wrap(~ variable, 
              scales = "free_x",
-             labeller = labeller(variable = facet_labels_col)) +
+             labeller = labeller(variable = facet_colabs)) +
   theme_minimal(base_size = 14) +
   labs(
     x = "Standardized Covariate Value (z-score)",
@@ -321,7 +342,21 @@ ggplot(rbwo_predplot_colabs_df, aes(x = x_value, y = pred_prob)) +
     title = "Marginal Effects of Covariates on Colonization Probability Across Blocks"
   )
 
+
 # EXT-PER
+facet_extper <- c(
+  pa_percent_z = "Protected Area",
+  developed_lower_base_z = "Open + Lower Development",
+  developed_upper_base_z = "Moderate + High Development",
+  forest_mixed_base_z = "Mixed Forest",
+  forest_deciduous_base_z = "Deciduous Forest",
+  pasture_crop_base_z = "Pasture/Cropland .",
+  tmax_38yr_z = "Max Temp *",
+  prcp_38yr_z = "Precipitation",
+  developed_total_diff_z = "Difference in Total Developed Land",
+  forest_total_diff_z = "Difference in Total Forest"
+)
+
 rbwo_predplot_extper_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
                                    model = rbwo_mod_extper, 
                                    data = data_extper_z)
@@ -331,7 +366,7 @@ ggplot(rbwo_predplot_extper_df, aes(x = x_value, y = pred_prob)) +
   geom_line(linewidth = 1) +
   facet_wrap(~ variable, 
              scales = "free_x",
-             labeller = labeller(variable = facet_labels_ext)) +
+             labeller = labeller(variable = facet_extper)) +
   theme_minimal(base_size = 14) +
   labs(
     x = "Standardized Covariate Value (z-score)",

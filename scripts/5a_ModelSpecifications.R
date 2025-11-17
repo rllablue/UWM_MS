@@ -70,7 +70,7 @@ data_colper_z <- data_colper %>%
       .fns = ~ as.numeric(scale(.)),
       .names = "{.col}_z"
     )
-  ) %>%
+  ) %>%    
   dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
   
 

@@ -30,6 +30,7 @@ blocks_shp <- st_read("data/maps/wibba blocks/Wisconsin_Breeding_Bird_Atlas_Bloc
   rename(atlas_block = BLOCK_ID)
 
 blocks_comp <- wibba_summary_comp$atlas_block
+rll_compblocks <- data.frame(atlas_block = blocks_comp)
 
 blocks_comp_shp <- blocks_shp %>% # create sf object of filtered comparable blocks
   filter(atlas_block %in% blocks_comp)
@@ -73,7 +74,27 @@ ggplot(blocks_surveyed_shp) +
   ) +
   theme_minimal()
 
-# Visualize comparable Atlas blocks (surveyed in both Atlas periods)
+# Visualize comparable Atlas blocks (surveyed in both Atlas periods) (N = 3337)
 ggplot(blocks_comp_shp) + 
   geom_sf(fill = "orange", color = "white") +
-  ggtitle("Comparable Atlas Blocks")
+  ggtitle("RLL Comparable Atlas Blocks")
+
+
+
+### --- DNR COMP BLOCKS --- ###
+
+dnr_compblocks <- read.csv("data/maps/wibba blocks/wibba_dnr_compblocks.csv")
+
+all(dnr_compblocks$atlas_block %in% rll_compblocks$atlas_block)
+
+dnr_compblocks <- dnr_compblocks$atlas_block
+
+# Shp object
+dnr_compblocks_shp <- blocks_comp_shp %>% # create sf object of filtered DNR comparable blocks
+  filter(atlas_block %in% dnr_compblocks)
+st_write(dnr_compblocks_shp, "outputs/maps/dnr_compblocks.shp", delete_dsn = TRUE) # create shp file for comp blocks
+
+# Visualize DNR comparable Atlas blocks (N = 858)
+ggplot(dnr_compblocks_shp) + 
+  geom_sf(fill = "orange", color = "white") +
+  ggtitle("DNR Comparable Atlas Blocks")

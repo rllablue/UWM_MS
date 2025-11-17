@@ -172,7 +172,7 @@ wibba_summary_full <- wibba_summary %>%
 ### COMPARABLE DATA ###
 #######################
 
-## --- FILTER COMPARABLE BLOCKS (DATA) --- ##
+## --- FILTER COMPARABLE BLOCKS (RLL) --- ##
 
 # Remove blocks missing checklists in either atlas period
 # AND blocks with 0 sr, which are not "empty" sed lists but lists that had invalidated bird records that are not in the ebd
@@ -243,3 +243,13 @@ ggplot(blocks_surveyed_shp) +
 ggplot(blocks_comp_shp) + 
   geom_sf(fill = "orange", color = "white") +
   ggtitle("Comparable Atlas Blocks")
+
+
+
+
+
+### --- COMPARABLE BLOCKS (DNR) --- ###
+
+wibba_summary_dnrcomp <- dnr_compblocks %>%
+  left_join(wibba_summary_comp, by = "atlas_block")
+

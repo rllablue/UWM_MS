@@ -22,13 +22,16 @@ library(exactextractr)
 
 # Filtering map-based objects
 
-
-# --- GENERAL COMP BLOCKS --- #
+### --- ALL BLOCKS --- ###
 
 # Load, create maps
 blocks_shp <- st_read("data/maps/wibba blocks/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
   rename(atlas_block = BLOCK_ID)
 
+
+# --- RLL COMP BLOCKS --- #
+
+# BLOCK MAP #
 blocks_comp <- wibba_summary_comp$atlas_block
 rll_compblocks <- data.frame(atlas_block = blocks_comp)
 
@@ -36,15 +39,13 @@ blocks_comp_shp <- blocks_shp %>% # create sf object of filtered comparable bloc
   filter(atlas_block %in% blocks_comp)
 st_write(blocks_comp_shp, "outputs/maps/blocks_comp.shp", delete_dsn = TRUE) # create shp file for comp blocks
 
-# Create Atlas outline polygon
+# BLOCKS OUTLINES #
 atlas_outline_crs3071 <- blocks_shp %>% # natural crs
   st_union() %>%      # dissolve all blocks into one geometry
   st_as_sf()          # convert back to sf object
 st_write(atlas_outline_crs3071, "outputs/maps/atlas_outline_crs3071.shp", append = FALSE)
 
-
-# --- VISUALIZE --- #
-
+# PLOTS #
 # Visualize all Atlas blocks
 ggplot(blocks_shp) + # all blocks
   geom_sf(fill = "orange", color = "white") +

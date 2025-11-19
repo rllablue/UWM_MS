@@ -24,14 +24,19 @@ library(pROC)
 library(rsample)
 library(glmnet)
 library(MuMIn)
+library(pscl)
+library(AICcmodavg)
 
 # Visualization
 library(ggplot2)
 library(ggfortify)
 library(viridis)
+library(gt)
 
 
-### --- RLL COMP BLOCKS --- ###
+#######################
+### RLL COMP BLOCKS ###
+#######################
 
 ## DFS ##
 breeders_zf_summary
@@ -42,7 +47,7 @@ wibba_covars_raw
 spp_name <- "Red-bellied Woodpecker"
 
 # RLL COMP BLOCKS #
-spp_mod_data_full <- breeders_zf_summary %>%
+spp_mod_data_rll <- breeders_zf_summary %>%
   filter(common_name == spp_name) %>%
   left_join(
     wibba_covars_raw,
@@ -59,10 +64,10 @@ spp_mod_data_full <- breeders_zf_summary %>%
 
 
 # 'Colonization-Absence' df
-data_colabs <- spp_mod_data_full %>%
+data_colabs_rll <- spp_mod_data_rll %>%
   filter(transition_state %in% c("Colonization", "Absence"))
 
-data_colabs_z <- data_colabs %>%
+data_colabs_rll_z <- data_colabs_rll %>%
   mutate(
     across(
       .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
@@ -75,10 +80,10 @@ data_colabs_z <- data_colabs %>%
 
 
 # 'Extinction-Persistence' df
-data_extper <- spp_mod_data_full %>%
+data_extper_rll <- spp_mod_data_rll %>%
   filter(transition_state %in% c("Extinction", "Persistence"))
 
-data_extper_z <- data_extper %>%
+data_extper_rll_z <- data_extper_rll %>%
   mutate(
     across(
       .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
@@ -91,13 +96,12 @@ data_extper_z <- data_extper %>%
 
 
 # Assign binomial state identifiers for model
-
-data_colabs_z <- data_colabs_z %>%
+data_colabs_rll_z <- data_colabs_rll_z %>%
   mutate(
     col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0)
   )
 
-data_extper_z <- data_extper_z %>%
+data_extper_rll_z <- data_extper_rll_z %>%
   mutate(
     ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0)
   )
@@ -107,26 +111,26 @@ data_extper_z <- data_extper_z %>%
 ############ RED-BELLIED WOODPECKER ############################################
 
 # Col-Abs
-rbwo_mod_colabs <- glm(col_abs ~  pa_percent_z +
+rbwo_mod_colabs_rll <- glm(col_abs ~  pa_percent_z +
                          developed_lower_base_z + developed_upper_base_z + 
                          forest_deciduous_base_z + forest_mixed_base_z +
                          pasture_crop_base_z + 
                          forest_total_diff_z + developed_total_diff_z +
                          tmax_38yr_z + prcp_38yr_z,
-                       data = data_colabs_z, family = binomial)
-summary(rbwo_mod_colabs)
-autoplot(rbwo_mod_colabs)
+                       data = data_colabs_rll_z, family = binomial)
+summary(rbwo_mod_colabs_rll)
+autoplot(rbwo_mod_colabs_rll)
 
 # Ext-Per
-rbwo_mod_extper <- glm(ext_per ~  pa_percent_z +
+rbwo_mod_extper_rll <- glm(ext_per ~  pa_percent_z +
                          developed_lower_base_z + developed_upper_base_z + 
                          forest_deciduous_base_z + forest_mixed_base_z +
                          pasture_crop_base_z + 
                          forest_total_diff_z + developed_total_diff_z +
                          tmax_38yr_z + prcp_38yr_z,
-                       data = data_extper_z, family = binomial)
-summary(rbwo_mod_extper)
-autoplot(rbwo_mod_extper)
+                       data = data_extper_rll_z, family = binomial)
+summary(rbwo_mod_extper_rll)
+autoplot(rbwo_mod_extper_rll)
 
 
 
@@ -235,21 +239,22 @@ ggplot(rbwo_predplot_extper_df, aes(x = x_value, y = pred_prob)) +
 
 
 
-
-### --- DNR COMP BLOCKS --- ####################################################
+#######################
+### DNR COMP BLOCKS ###
+#######################
 
 # DFS #
 zf_dnr_compblocks <- dnr_compblocks %>% # zf data for dnr fair comp blocks (N. Anich)
   left_join(breeders_zf_summary, by = "atlas_block")
 
-covars_dnr_compblocks_raw <- dnr_compblocks %>% # modeling covaiates for dnr fair comp blocks
+covars_dnr_compblocks_raw <- dnr_compblocks %>% # modeling covariates for dnr fair comp blocks
   left_join(wibba_covars_raw, by = "atlas_block")
 
 
 # Full, species-specific detection df
 spp_name <- "Red-bellied Woodpecker"
 
-spp_mod_data_dnr_full <- zf_dnr_compblocks %>%
+spp_mod_data_dnr <- zf_dnr_compblocks %>%
   filter(common_name == spp_name) %>%
   left_join(
     covars_dnr_compblocks_raw,
@@ -290,7 +295,6 @@ data_extper_dnr_z <- data_extper_dnr %>%
 
 
 # Assign binomial state identifiers for model
-
 data_colabs_dnr_z <- data_colabs_dnr_z %>%
   mutate(
     col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0)
@@ -432,26 +436,6 @@ ggplot(rbwo_predplot_extper_dnr_df, aes(x = x_value, y = pred_prob)) +
     y = "Predicted Probability of Extinction",
     title = "Marginal Effects of Covariates on Extinction Probability Across DNR Comparable Blocks"
   )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -694,147 +678,107 @@ ggplot(rcki_predplot_ext_df, aes(x = x_value, y = pred_prob)) +
 
 
 
+########################
+### MODEL COMPARISON ###
+########################
+
+# Combine all model data
+tab_colabs_rll  <- tidy(rbwo_mod_colabs_rll)  %>% mutate(dataset = "RLL",  model = "Colonization")
+tab_extper_rll  <- tidy(rbwo_mod_extper_rll)  %>% mutate(dataset = "RLL",  model = "Extinction")
+
+tab_colabs_dnr  <- tidy(rbwo_mod_colabs_dnr)  %>% mutate(dataset = "DNR",  model = "Colonization")
+tab_extper_dnr  <- tidy(rbwo_mod_extper_dnr)  %>% mutate(dataset = "DNR",  model = "Extinction")
+
+tab_all <- bind_rows(tab_colabs_rll, tab_extper_rll,
+                     tab_colabs_dnr, tab_extper_dnr)
+
+# Compute odds ratios, confidence intervals
+tab_all <- tab_all %>%
+  mutate(odds_ratio = exp(estimate),
+         OR_low = exp(estimate - 1.96*std.error),
+         OR_high = exp(estimate + 1.96*std.error))
+
+# Comparison table
+compare_table <- tab_all %>%
+  dplyr::select(dataset, model, term, estimate, odds_ratio, p.value) %>%
+  pivot_wider(names_from = dataset,
+              values_from = c(estimate, odds_ratio, p.value),
+              names_sep = "_")
+compare_table
 
 
+# Plot coefficient effect sizes
+ggplot(tab_all, aes(x = term, y = estimate, color = dataset)) +
+  geom_point(position = position_dodge(width = 0.6)) +
+  geom_errorbar(aes(ymin = estimate - 1.96*std.error,
+                    ymax = estimate + 1.96*std.error),
+                width = 0.2,
+                position = position_dodge(width = 0.6)) +
+  coord_flip() +
+  facet_wrap(~model, scales = "free_y") +
+  theme_bw() +
+  labs(title = "Coefficient Comparison: RLL vs DNR",
+       y = "Log-odds estimate")
 
 
+# Model fit: AIC, deviance, McFadden pseudo-R^2
+# Helper function
+extract_metrics <- function(model, model_name) {
+  data.frame(
+    Model = model_name,
+    AIC = AIC(model),
+    Deviance = deviance(model),
+    McFadden_R2 = pscl::pR2(model)[["McFadden"]]
+  )
+}
 
+### ---- 1. COLONIZATION: DNR vs RLL ---- ###
+col_results <- bind_rows(
+  extract_metrics(rbwo_mod_colabs_dnr, "Colonization — DNR"),
+  extract_metrics(rbwo_mod_colabs_rll, "Colonization — RLL")
+)
 
+### ---- 2. EXTINCTION: DNR vs RLL ---- ###
+ext_results <- bind_rows(
+  extract_metrics(rbwo_mod_extper_dnr, "Extinction — DNR"),
+  extract_metrics(rbwo_mod_extper_rll, "Extinction — RLL")
+)
 
+### ---- Print results ---- ###
+cat("=== Colonization Model Comparison ===\n")
+print(col_results)
 
+cat("\n\n=== Extinction Model Comparison ===\n")
+print(ext_results)
 
+# Export tidy table 
+# Combine results
+combined_results <- rbind(
+  data.frame(Model = "Colonization — DNR", col_results[1, -1]),
+  data.frame(Model = "Colonization — RLL", col_results[2, -1]),
+  data.frame(Model = "Extinction — DNR", ext_results[1, -1]),
+  data.frame(Model = "Extinction — RLL", ext_results[2, -1])
+)
 
-
-######################### OLD MODEL APPROACHES #################################
-
-# 'Colonization-Persistence' df
-data_colper <- spp_mod_data_full %>%
-  filter(transition_state %in% c("Colonization", "Persistence"))
-
-data_colper_z <- data_colper %>%
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
-  ) %>%    
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
-
-
-
-# 'Extinction-Absence' df
-data_extabs <- spp_mod_data_full %>%
-  filter(transition_state %in% c("Extinction", "Absence"))
-
-data_extabs_z <- data_extabs %>%
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
+gt_table <- combined_results %>%
+  gt() %>%
+  tab_header(
+    title = "Model Comparison: Colonization and Extinction",
+    subtitle = "AIC, Deviance, and McFadden Pseudo-R²"
   ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
-
-
-# Binomial state IDs
-data_colper_z <- data_colper_z %>%
-  mutate(
-    col_per = ifelse(transition_state %in% c("Colonization"), 1, 0),
+  fmt_number(
+    columns = c(AIC, Deviance, McFadden_R2),
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_options(
+    table.font.size = 14,
+    heading.title.font.size = 18,
+    heading.subtitle.font.size = 14
   )
 
-data_extabs_z <- data_extabs_z %>%
-  mutate(
-    ext_abs = ifelse(transition_state %in% c("Extinction"), 1, 0)
-  )
+gt_table
 
-
-# Col-Per
-rbwo_mod_colper <- glm(col_per ~  pa_percent_z +
-                         developed_lower_base_z + developed_upper_base_z + 
-                         forest_deciduous_base_z + forest_mixed_base_z +
-                         pasture_crop_base_z + 
-                         forest_total_diff_z + developed_total_diff_z +
-                         tmax_38yr_z + prcp_38yr_z,
-                       data = data_colper_z, family = binomial)
-summary(rbwo_mod_colper)
-autoplot(rbwo_mod_colper)
-
-# Ext-Abs
-rbwo_mod_extabs <- glm(ext_abs ~ pa_percent_z +
-                         developed_lower_base_z + developed_upper_base_z + 
-                         forest_deciduous_base_z + forest_mixed_base_z +
-                         pasture_crop_base_z + 
-                         forest_total_diff_z + developed_total_diff_z +
-                         tmax_38yr_z + prcp_38yr_z,
-                       data = data_extabs_z, family = binomial)
-
-summary(rbwo_mod_extabs)
-autoplot(rbwo_mod_extabs)
-
-
-# Visualize
-
-# COL-PER
-facet_colper <- c(
-  pa_percent_z = "Protected Area",
-  developed_lower_base_z = "Open + Lower Development",
-  developed_upper_base_z = "Moderate + High Development",
-  forest_mixed_base_z = "Mixed Forest ***",
-  forest_deciduous_base_z = "Deciduous Forest .",
-  pasture_crop_base_z = "Pasture/Cropland",
-  tmax_38yr_z = "Max Temp ***",
-  prcp_38yr_z = "Precipitation",
-  developed_total_diff_z = "Difference in Total Developed Land",
-  forest_total_diff_z = "Difference in Total Forest"
-)
-
-rbwo_predplot_colper_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
-                                   model = rbwo_mod_colper, 
-                                   data = data_colper_z)
-
-
-ggplot(rbwo_predplot_colper_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_colper)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Colonization",
-    title = "Marginal Effects of Covariates on Colonization Probability Across Blocks"
-  )
-
-
-# EXT-ABS
-facet_extabs <- c(
-  pa_percent_z = "Protected Area",
-  developed_lower_base_z = "Open + Lower Development",
-  developed_upper_base_z = "Moderate + High Development",
-  forest_mixed_base_z = "Mixed Forest **",
-  forest_deciduous_base_z = "Deciduous Forest",
-  pasture_crop_base_z = "Pasture/Cropland",
-  tmax_38yr_z = "Max Temp ***",
-  prcp_38yr_z = "Precipitation",
-  developed_total_diff_z = "Difference in Total Developed Land",
-  forest_total_diff_z = "Difference in Total Forest"
-)
-
-rbwo_predplot_ext_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
-                                model = rbwo_mod_ext, 
-                                data = spp_mod_data_ext_z)
-
-
-ggplot(rbwo_predplot_ext_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_extabs)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Extinction",
-    title = "Marginal Effects of Covariates on Extinction Probability Across Blocks"
-  )

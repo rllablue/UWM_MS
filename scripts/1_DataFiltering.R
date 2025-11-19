@@ -201,49 +201,6 @@ observations_comp <- observations_filt %>%
   filter(atlas_block %in% blocks_comp)
 
 
-## -- MAPS/SHP FILES -- ##
-
-# Load, create maps
-blocks_shp <- st_read("data/maps/wibba blocks/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
-  rename(atlas_block = BLOCK_ID)
-
-blocks_comp_shp <- blocks_shp %>% # create sf object of comparable blocks
-  filter(atlas_block %in% blocks_comp)
-
-# Visualize all Atlas blocks
-ggplot(blocks_shp) + # all blocks
-  geom_sf(fill = "orange", color = "white") +
-  ggtitle("All Atlas Blocks")
-
-# Visualize surveyed v un-surveyed blocks
-blocks_surveyed <- checklist_summary %>% 
-  select(atlas_block, checklists_Atlas1, checklists_Atlas2) %>%
-  pivot_longer(
-    cols = starts_with("checklists_"),
-    names_to = "atlas_period",
-    names_prefix = "checklists_",
-    values_to = "n_checklists"
-  ) %>%
-  mutate(surveyed = n_checklists > 0)
-
-blocks_surveyed_shp <- blocks_shp %>%
-  left_join(blocks_surveyed, by = "atlas_block")
-
-ggplot(blocks_surveyed_shp) +
-  geom_sf(aes(fill = surveyed), color = NA) +
-  facet_wrap(~atlas_period) +
-  scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "lightgray")) +
-  labs(
-    title = "Surveyed Atlas Blocks by Atlas Period",
-    fill = "Surveyed"
-  ) +
-  theme_minimal()
-
-# Visualize comparable Atlas blocks (surveyed in both Atlas periods)
-ggplot(blocks_comp_shp) + 
-  geom_sf(fill = "orange", color = "white") +
-  ggtitle("Comparable Atlas Blocks")
-
 
 
 
@@ -253,3 +210,5 @@ ggplot(blocks_comp_shp) +
 wibba_summary_dnrcomp <- dnr_compblocks %>%
   left_join(wibba_summary_comp, by = "atlas_block")
 
+sr_summary_dnrcomp <- sr_summary %>%
+  filter(atlas_block %in% dnr_compblocks)

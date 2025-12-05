@@ -34,40 +34,58 @@ library(viridis)
 library(gt)
 
 
-#######################
-### RLL COMP BLOCKS ###
-#######################
+### --- DATAFRAMES --- ###
 
-## DFS ##
-breeders_zf_summary
-wibba_covars_raw 
+# COMPONENT DFS #
+
+# Zero-filled Species Data (breeders_zf_summary)
+spp_zf_rll <- breeders_zf_summary
+spp_zf_dnr<- dnr_compblocks %>%
+  left_join(spp_zf_rll, by = "atlas_block")
+
+# Raw Covariate data (wibba_covars_raw)
+covars_raw_rll <- wibba_covars_raw
+covars_raw_dnr <- dnr_compblocks %>%
+  left_join(covars_raw_rll, by = "atlas_block")
 
 
-# Full, species-specific detection df
+### --- MODEL SPECS --- ###
+
+# MODEL SPECIES #
 spp_name <- "Red-bellied Woodpecker"
 
-# RLL COMP BLOCKS #
-spp_mod_data_rll <- breeders_zf_summary %>%
+
+# NEW DFS #
+
+# Species-specific, combined zf, covariate dfs
+
+# Modeling df for RLL block set
+mod_data_rll <- spp_zf_rll %>%
   filter(common_name == spp_name) %>%
   left_join(
-    wibba_covars_raw,
+    covars_raw_rll,
+    by = "atlas_block"
+  )
+
+# Modeling df for DNR block set
+mod_data_dnr <- spp_zf_dnr %>%
+  filter(common_name == spp_name) %>%
+  left_join(
+    covars_raw_dnr,
     by = "atlas_block"
   )
 
 
-# Species-, state-specific detection dfs
-
+# State-specific modeling subsets
 ### Separate data into bins where A2 detection is either 1 or 0; not necessarily
 # in precise probabilities between colo, pres, abs, ext, but more what promotes
 # 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
 # what promotes det = 0. 
 
-
-# 'Colonization-Absence' df
-data_colabs_rll <- spp_mod_data_rll %>%
-  filter(transition_state %in% c("Colonization", "Absence"))
-
-data_colabs_rll_z <- data_colabs_rll %>%
+# RLL Subsets #
+# Colonization-Absence Subset
+mod_colabs_rll_z <- mod_data_rll %>%
+  filter(transition_state %in% c("Colonization", "Absence")) %>% # subset by response
   mutate(
     across(
       .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
@@ -75,15 +93,14 @@ data_colabs_rll_z <- data_colabs_rll %>%
       .names = "{.col}_z"
     )
   ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
+  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
+  mutate(
+    col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0) # assign numeric binomial state identifier
+  )
 
-
-
-# 'Extinction-Persistence' df
-data_extper_rll <- spp_mod_data_rll %>%
-  filter(transition_state %in% c("Extinction", "Persistence"))
-
-data_extper_rll_z <- data_extper_rll %>%
+# Extinction-Persistence
+mod_extper_rll_z <- mod_data_rll %>%
+  filter(transition_state %in% c("Extinction", "Persistence")) %>% # subset by response
   mutate(
     across(
       .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
@@ -91,24 +108,94 @@ data_extper_rll_z <- data_extper_rll %>%
       .names = "{.col}_z"
     )
   ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
-
-
-
-# Assign binomial state identifiers for model
-data_colabs_rll_z <- data_colabs_rll_z %>%
+  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
   mutate(
-    col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0)
+    ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0) # assign numeric binomial state identifier
+  )  
+
+
+# DNR Subsets #
+# Colonization-Absence Subset
+mod_colabs_dnr_z <- mod_data_dnr %>%
+  filter(transition_state %in% c("Colonization", "Absence")) %>% # subset by response
+  mutate(
+    across(
+      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code), # do not standardize
+      .fns = ~ as.numeric(scale(.)), # z-standardize
+      .names = "{.col}_z"
+    )
+  ) %>%
+  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
+  mutate(
+    col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0) # assign numeric binomial state identifier
   )
 
-data_extper_rll_z <- data_extper_rll_z %>%
+# Extinction-Persistence
+mod_extper_dnr_z <- mod_data_dnr %>%
+  filter(transition_state %in% c("Extinction", "Persistence")) %>% # subset by response
   mutate(
-    ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0)
+    across(
+      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code), # do not standardize
+      .fns = ~ as.numeric(scale(.)), # z-standardize
+      .names = "{.col}_z"
+    )
+  ) %>%
+  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
+  mutate(
+    ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0) # assign numeric binomial state identifier
   )
 
 
 
-############ RED-BELLIED WOODPECKER ############################################
+############################
+### COVARIATE PROCESSING ### 
+############################
+
+### --- PROCESS --- ###
+### Species-specific thinning of covariates for modeling in two steps:
+# 1) Screen for biologically relevant covariates (for landcover and climate)
+# on a species-specific basis, ie. within-group reduction; run pairwise 
+# correlations, VIF to assess multi-collinearity (alt. approach: PCA &/or CLT)
+# 2) Model selection (AICc) from biologically plausible candidates with both 
+# additive and interaction terms
+
+### -- COVARIATE THINNING --- ###
+# Construct lists of predictors
+
+land_covars_all <- 
+land_covars_base <- 
+land_covars_diff <- 
+
+climate_covars_all <- 
+climate_covars_base <- 
+climate_covars_diff <- 
+
+
+other_covars <- c()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################
+### MODELING ###
+################
+
+# Species = RBWO
+
+### --- RLL SUBSET --- ###
 
 # Col-Abs
 rbwo_mod_colabs_rll <- glm(col_abs ~  pa_percent_z +
@@ -243,71 +330,7 @@ ggplot(rbwo_predplot_extper_df, aes(x = x_value, y = pred_prob)) +
 ### DNR COMP BLOCKS ###
 #######################
 
-# DFS #
-zf_dnr_compblocks <- dnr_compblocks %>% # zf data for dnr fair comp blocks (N. Anich)
-  left_join(breeders_zf_summary, by = "atlas_block")
-
-covars_dnr_compblocks_raw <- dnr_compblocks %>% # modeling covariates for dnr fair comp blocks
-  left_join(wibba_covars_raw, by = "atlas_block")
-
-
-# Full, species-specific detection df
-spp_name <- "Red-bellied Woodpecker"
-
-spp_mod_data_dnr <- zf_dnr_compblocks %>%
-  filter(common_name == spp_name) %>%
-  left_join(
-    covars_dnr_compblocks_raw,
-    by = "atlas_block"
-  )
-
-
-# 'Colonization-Absence' df
-data_colabs_dnr <- spp_mod_data_dnr_full %>%
-  filter(transition_state %in% c("Colonization", "Absence"))
-
-data_colabs_dnr_z <- data_colabs_dnr %>%
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
-
-
-
-# 'Extinction-Persistence' df
-data_extper_dnr <- spp_mod_data_dnr_full %>%
-  filter(transition_state %in% c("Extinction", "Persistence"))
-
-data_extper_dnr_z <- data_extper_dnr %>%
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z"))
-
-
-
-# Assign binomial state identifiers for model
-data_colabs_dnr_z <- data_colabs_dnr_z %>%
-  mutate(
-    col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0)
-  )
-
-data_extper_dnr_z <- data_extper_dnr_z %>%
-  mutate(
-    ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0)
-  )
-
-
-
-############ RED-BELLIED WOODPECKER ########
+# Species = RBWO
 
 # Col-Abs
 rbwo_mod_colabs_dnr <- glm(col_abs ~  pa_percent_z +

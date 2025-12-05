@@ -67,6 +67,9 @@ mod_data_rll <- spp_zf_rll %>%
     by = "atlas_block"
   )
 
+write.csv(mod_data_rll, "outputs/data/mod_data_rll.csv", row.names = FALSE)
+
+
 # Modeling df for DNR block set
 mod_data_dnr <- spp_zf_dnr %>%
   filter(common_name == spp_name) %>%
@@ -75,6 +78,7 @@ mod_data_dnr <- spp_zf_dnr %>%
     by = "atlas_block"
   )
 
+write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
 
 # State-specific modeling subsets
 ### Separate data into bins where A2 detection is either 1 or 0; not necessarily

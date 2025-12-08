@@ -298,23 +298,18 @@ alias(vif_model4)
 # VIF Thinned Covariate Sets
 # Final set prior to AICc/Model Selection process
 
-factor_covars_final <- c("atlas_block")
+factor_covars_reduced <- c("atlas_block")
 
-land_covars_final <- c("shrub_scrub_base", "grassland_base","developed_total_base",
+land_covars_reduced <- c("shrub_scrub_base", "grassland_base","developed_total_base",
                        "forest_deciduous_base", "forest_evergreen_base", 
                        "forest_mixed_base", "wetlands_total_base","forest_total_diff")
+land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
 
-climate_covars_final <- climate_covars_reduced # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
+climate_covars_reduced # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
+climate_covars_reduced_z <- paste0(climate_covars_reduced, "_z")
 
-stable_covars_final <- stable_covars_reduced # "sr_Diff", "pa_percent"
-
-
-covars_numeric_final <- c("land_covars_final", "climate_covars_final", "stable_covars_final")
-covars_numeric_final_z <- paste0(covars_numeric_final, "_z")
-
-covars_all_final <- c(covars_numeric_reduced_z, factor_covars_final)
-# w/in each modeling df: col_abs or ext_per
-
+stable_covars_reduced # "sr_Diff", "pa_percent"
+stable_covars_reduced_z <- paste0(stable_covars_reduced, "_z")
 
 
 #######################
@@ -324,73 +319,256 @@ covars_all_final <- c(covars_numeric_reduced_z, factor_covars_final)
 ### --- PROCESS --- ###
 
 ### AICc from pre-screened, correlation-controlled, biologically plausible 
-# candidates with both additive and interaction terms; include atlas_block as  
-# a random effect, as both block sets are sub-samples of full Atlas block set.    ### Does this make sense? 
-                                                                                  # Are those that were chosen/completed
-                                                                                  # to a satisfactory degree "random" enough?
+# candidates with both additive and interaction terms.    
+### Fixed Effect: atlas_block (cannot be random b/c each block only
+# has one row of data/no replication, ie. effect is not estimatable).
 
 # MuMIn::dredge() automates candidate set construction of all main effect covar combos
 # but user must manually define, limit interaction terms. User should also further
 # restrict candidate models prior to running dredge(), otherwise models will not 
 # converge and/or overload processor. 
-# Also: add atlas_block as a random effect.
 
-### Two directions and/or steps for candidate model thinning:
-# 1) Partitioned model sets, ie. bin covar groups ('land', 'climate', etc.), run model subsets
-# 2) Targeted, manually constructed 2-way interactions, ie. choose which interactions to run
+### Two Steps:
+# 1) "Partitioned" Main-Effects Models (MuMIn::dredge())
+# A) Land-only Model
+# B) Climate-only Model
+# C) Stable Numeric-only Model
 
-# Covar set: covars_all_final
-
-
-### APPROACH 1: Partition Covariate Models ###
-
-
-# DataFrames # 
-mod_colabs_rll_aicc <- mod_colabs_rll_z[, c("col_abs", covars_all_final)]
-mod_extper_rll_aicc <- mod_extper_rll_z[, c("ext_per", covars_all_final)]
-
-mod_colabs_dnr_aicc <- mod_colabs_dnr_z[, c("col_abs", covars_all_final)]
-mod_extper_dnr_aicc <- mod_extper_dnr_z[, c("ext_per", covars_all_final)]
+# 2) "Manual" Interaction Models
+# Generate plausible 2-way interactions
+# Fit candidates, compare with AICc
 
 
-# Models #
-# Model structure
-### Step needed to create, set limit for interactions
+### --- STEP 1: Partition Covariate Models --- ###
 
-mod_form_colabs <- as.formula(paste("col_abs ~ (", paste(covars_all_final, collapse = " + "), ")^2")) # ^2 = max 2-way interactions
+out_dir <- "outputs/model_selection"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
-mod_form_extper <- as.formula(paste("ext_per ~ (", paste(covars_all_final, collapse = " + "), ")^2"))
+# Covariates #
+factor_covars_reduced # atlas_block
 
-# Model data
-# RLL
-full_mod_colabs_rll <- glm(mod_form_colabs, data = mod_colabs_rll_aicc, family = binomial)
-full_mod_extper_rll <- glm(mod_form_extper, data = mod_extper_rll_aicc, family = binomial)
+land_covars_reduced_z # shrub_scrub_base, grassland_base, developed_total_base,
+                    # forest_deciduous_base, forest_evergreen_base, 
+                    # forest_mixed_base, wetlands_total_base, forest_total_diff
 
+climate_covars_reduced_z # tmax_38yr, prcp_38yr, tmax_diff, tmin_diff, prcp_diff
+
+stable_covars_reduced_z # sr_Diff, pa_percent
+
+
+# Datasets #
+# Objects to iterate over
+mod_datasets <- list(
+  colabs_rll = list(df = mod_colabs_rll_z, resp = "col_abs"),
+  extper_rll = list(df = mod_extper_rll_z, resp = "ext_per"),
+  colabs_dnr = list(df = mod_colabs_dnr_z, resp = "col_abs"),
+  extper_dnr = list(df = mod_extper_dnr_z, resp = "ext_per")
+)
+
+
+# Functions
+# Helper: build model formula
+
+BuildFormula <- function(response, covariates) {
+  f <- as.formula(
+    paste0(response, " ~ ", paste(covariates, collapse = " + "))
+  )
+  environment(f) <- environment()  # safe environment
+  return(f)
+}
+
+
+# Helper: extract top covariates, importance metric
+GetTopCovars <- function(dredge_obj, delta_cut = 2, imp_cut = 0.5) {
+  
+  # Top models within delta AICc
+  top_models <- subset(dredge_obj, delta <= delta_cut)
+  if (nrow(top_models) == 0) return(character(0))
+  
+  # Covariate columns (exclude metadata)
+  covar_cols <- setdiff(
+    colnames(top_models),
+    c("(Int)", "df", "logLik", "AICc", "delta", "weight")
+  )
+  
+  # Check if there are covariates at all
+  if(length(covar_cols) == 0) return(character(0))
+  
+  # Try model-averaged importance safely
+  imp <- tryCatch(importance(dredge_obj), error = function(e) NULL)
+  
+  # If importance failed, just return covariates present in top models
+  if(is.null(imp)) {
+    top_covs <- covar_cols[apply(top_models[, covar_cols, drop = FALSE], 2, function(x) any(!is.na(x)))]
+    return(top_covs)
+  }
+  
+  # Covariates appearing in at least one top model
+  present_in_top <- covar_cols[apply(top_models[, covar_cols, drop = FALSE], 2, function(x) any(!is.na(x)))]
+  
+  # Filter by importance threshold
+  top_covs <- present_in_top[present_in_top %in% names(imp[imp >= imp_cut])]
+  
+  return(top_covs)
+}
+
+
+# Apply
+options(na.action = "na.fail")
+results_partitioned <- list()
+top_covars_partitioned <- list()
+
+for(ds in names(mod_datasets)) {
+  
+  d <- mod_datasets[[ds]]$df
+  y <- mod_datasets[[ds]]$resp
+  message("=== Processing dataset: ", ds, " (response: ", y, ") ===")
+  
+  results_partitioned[[ds]] <- list()
+  top_covars_partitioned[[ds]] <- list()
+  
+  for(partition_name in c("land", "climate", "stable")) {
+    
+    # Choose covariates for this partition
+    covs <- switch(partition_name,
+                   land    = land_covars_reduced_z,
+                   climate = climate_covars_reduced_z,
+                   stable  = stable_covars_reduced_z)
+    
+    # Build formula & fit global model
+    f <- BuildFormula(y, covs)
+    m <- glm(f, data = d, family = "binomial")
+    
+    # Dredge
+    dredged <- dredge(m, rank = "AICc", trace = FALSE)
+    
+    # Save dredged results
+    results_partitioned[[ds]][[partition_name]] <- dredged
+    
+    # Extract top covariates with importance
+    top_covars_partitioned[[ds]][[partition_name]] <- GetTopCovars(dredged, delta_cut = 2, imp_cut = 0.5)
+    
+  }
+}
+
+
+# Assess Top Covariates
+# Helper: summarize results across both responses, block sets
+
+SummarizePartitionedResults <- function(top_covars_list, dredge_results_list, label = "") {
+  
+  cat("\n==============================\n")
+  cat("     SUMMARY FOR:", label, "\n")
+  cat("==============================\n\n")
+  
+  for (ds in names(top_covars_list)) {
+    
+    cat("\n--------------------------------------\n")
+    cat(" Dataset:", ds, "\n")
+    cat("--------------------------------------\n")
+    
+    for (partition in names(top_covars_list[[ds]])) {
+      
+      cat("\n  >> Partition:", toupper(partition), "\n")
+      
+      # Print top covariates
+      cat("     Top covariates:\n")
+      print(top_covars_list[[ds]][[partition]])
+      
+      # Print first rows of dredge table
+      cat("\n     Top dredge models (head):\n")
+      suppressMessages(print(head(dredge_results_list[[ds]][[partition]])))
+      
+      cat("\n")
+    }
+  }
+}
+
+
+# Apply
 # DNR
-full_mod_colabs_dnr <- glm(mod_form_colabs, data = mod_colabs_dnr_aicc, family = binomial)
-full_mod_extper_dnr <- glm(mod_form_extper, data = mod_extper_dnr_aicc, family = binomial)
-
-
-# Model Selection # 
-### Use MuMIn::dredge() to automate model selection process across all possible subsets
-# w/o having to manually code/write all formulas of interest. Created model form code
-# above b/c dredge() by default only tests main (additive) effects, ie. need to add manually.
-
-options(na.action = "na.fail") # required for MuMIn::dredge()
+SummarizePartitionedResults(
+  top_covars_list = top_covars_partitioned[c("colabs_dnr", "extper_dnr")],
+  dredge_results_list = results_partitioned[c("colabs_dnr", "extper_dnr")],
+  label = "DNR BLOCKS"
+)
 
 # RLL
-dredge_colabs_rll <- dredge(full_model_colabs_rll, rank = "AICc")
-dredge_extper_rll <- dredge(full_model_extper_rll, rank = "AICc")
-
-# DNR
-dredge_colabs_dnr <- dredge(full_model_colabs_dnr, rank = "AICc")
-dredge_extper_dnr <- dredge(full_model_extper_dnr, rank = "AICc")
-
-
-### APPROACH B: MANUAL APPROACH
+SummarizePartitionedResults(
+  top_covars_list = top_covars_partitioned[c("colabs_rll", "extper_rll")],
+  dredge_results_list = results_partitioned[c("colabs_rll", "extper_rll")],
+  label = "RLL BLOCKS"
+)
 
 
+# Visualize
+# Helper: build formatted importance summary tables
+
+BuildTables <- function(top_covars_list, dredge_results_list) {
+  
+  tables_out <- list()
+  
+  for (ds in names(top_covars_list)) {
+    
+    dredge_parts <- dredge_results_list[[ds]]
+    top_parts    <- top_covars_list[[ds]]
+    
+    block_set <- ifelse(grepl("dnr", ds), "DNR", "RLL")
+    response  <- ifelse(grepl("colabs", ds), "col_abs", "ext_per")
+    
+    for (partition in names(top_parts)) {
+      
+      dredge_obj <- dredge_parts[[partition]]
+      top_covs   <- top_parts[[partition]]
+      
+      # Identify covariate columns
+      covar_cols <- setdiff(
+        colnames(dredge_obj),
+        c("(Int)", "df", "logLik", "AICc", "delta", "weight")
+      )
+      
+      # ---- SAFE importance: sum of weights across models where covariate is present ----
+      imp <- sapply(covar_cols, function(v) {
+        present <- !is.na(dredge_obj[[v]])
+        sum(dredge_obj$weight[present])
+      })
+      
+      df <- data.frame(
+        block_set = block_set,
+        response  = response,
+        partition = partition,
+        covariate = names(imp),
+        importance = as.numeric(imp),
+        in_top_models = names(imp) %in% top_covs,
+        rank = rank(-imp, ties.method = "first"),
+        stringsAsFactors = FALSE
+      )
+      
+      tbl_name <- paste(block_set, response, partition, sep = "_")
+      tables_out[[tbl_name]] <- df
+    }
+  }
+  
+  return(tables_out)
+}
+
+
+# Apply
+### Model-Averaged Variable Importance Score: sum of AIcc weights of all (dredged)
+# models wherein a given covariate appears ("relative importance," Burnham & Anderson 2002).
+# If all the highest-weight models include X, then importance ~= 1
+# If some mid-weight models include X, then importance ~= 0.3-0.7
+# If only low-weight models include X, then importance ~= 0.05-0.2
+# If no top models include X, then importance ~= 0
+
+formatted_tables <- BuildTables(
+  top_covars_list = top_covars_partitioned,
+  dredge_results_list = results_partitioned
+)
+
+
+### --- STEP 2: "Manual" Interaction Models --- ###
 
 
 
@@ -406,9 +584,19 @@ dredge_extper_dnr <- dredge(full_model_extper_dnr, rank = "AICc")
 
 
 
-################
-### MODELING ###
-################
+
+
+
+
+
+
+
+
+######################
+### BASIC MODELING ###
+######################
+
+# Modeling w/o covariate thinning, selection
 
 # Species = RBWO
 
@@ -679,245 +867,6 @@ ggplot(rbwo_predplot_extper_dnr_df, aes(x = x_value, y = pred_prob)) +
 
 
 
-
-
-
-
-
-########################## BOBOLINK ###########################################
-
-bobo_mod_col <- glm(col_per ~  pa_percent_z +
-                      developed_lower_base_z + developed_upper_base_z + 
-                      forest_total_base_z +
-                      pasture_crop_base_z + grassland_base_z +
-                      pasture_crop_diff_z + grassland_diff_z +
-                      tmax_38yr_z + prcp_38yr_z,
-                    data = spp_mod_data_col_z, family = binomial)
-summary(bobo_mod_col)
-autoplot(bobo_mod_col)
-
-
-bobo_mod_ext <- glm(ext_abs ~ pa_percent_z +
-                      developed_lower_base_z + developed_upper_base_z + 
-                      forest_total_base_z +
-                      pasture_crop_base_z + grassland_base_z +
-                      pasture_crop_diff_z + grassland_diff_z +
-                      tmax_38yr_z + prcp_38yr_z,
-                    data = spp_mod_data_ext_z, family = binomial)
-
-summary(bobo_mod_ext)
-autoplot(bobo_mod_ext)
-
-
-
-
-#### VISUALIZE ####
-
-bobo_vars_plot <- c(
-  "pa_percent_z",
-  "pasture_crop_base_z",
-  "grassland_diff_z",
-  "prcp_38yr_z",
-  "tmax_38yr_z"
-)
-
-
-make_pred_df <- function(var_name, model, data, n = 100) {
-  # baseline at mean for all predictors
-  base_vals <- data %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE))
-  
-  # vary only this variable
-  newdata <- base_vals[rep(1, n), ]
-  newdata[[var_name]] <- seq(
-    min(data[[var_name]], na.rm = TRUE),
-    max(data[[var_name]], na.rm = TRUE),
-    length.out = n
-  )
-  
-  # predicted probability
-  newdata$pred_prob <- predict(model, newdata = newdata, type = "response")
-  newdata$variable <- var_name
-  newdata$x_value <- newdata[[var_name]]
-  
-  newdata %>% dplyr::select(variable, x_value, pred_prob)
-}
-
-
-### PLOT 
-facet_labels_col <- c(
-  pa_percent_z = "Protected Area (%)",
-  tmax_38yr_z = "Max Temp (38-year avg).",
-  prcp_38yr_z = "Precipitation (38-year avg).",
-  pasture_crop_base_z = "Pasture + Crop",
-  grassland_diff_z = "Grassland (chnage)"
-)
-
-
-facet_labels_ext <- c(
-  pa_percent_z = "Protected Area (%)***",
-  tmax_38yr_z = "Max Temp (38-year avg).",
-  prcp_38yr_z = "Precipitation (38-year avg).",
-  pasture_crop_base_z = "Pasture + Crop**",
-  grassland_diff_z = "Grassland (change)"
-)
-
-
-# COLO
-bobo_predplot_col_df <- map_dfr(bobo_vars_plot, make_pred_df, 
-                                model = bobo_mod_col, 
-                                data = spp_mod_data_col_z)
-
-
-ggplot(bobo_predplot_col_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_labels_col)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Colonization",
-    title = "Marginal Effects of Covariates on Colonization Probability Across Blocks"
-  )
-
-
-# EXT
-bobo_predplot_ext_df <- map_dfr(bobo_vars_plot, make_pred_df, 
-                                model = bobo_mod_ext, 
-                                data = spp_mod_data_ext_z)
-
-
-ggplot(bobo_predplot_ext_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_labels_ext)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Extinction",
-    title = "Marginal Effects of Covariates on Extinction Probability Across Blocks"
-  )
-
-
-
-############################## RCKI ############################################
-
-rcki_mod_col <- glm(col_per ~  pa_percent_z +
-                      developed_lower_base_z +
-                      forest_evergreen_base_z + forest_mixed_base_z +
-                      wetlands_total_base_z + 
-                      tmax_38yr_z + prcp_38yr_z,
-                    data = spp_mod_data_col_z, family = binomial)
-summary(rcki_mod_col)
-autoplot(rcki_mod_col)
-
-
-rcki_mod_ext <- glm(ext_abs ~ pa_percent_z +
-                      developed_lower_base_z +
-                      forest_evergreen_base_z + forest_mixed_base_z +
-                      wetlands_total_base_z + 
-                      tmax_38yr_z + prcp_38yr_z,
-                    data = spp_mod_data_ext_z, family = binomial)
-
-summary(rcki_mod_ext)
-autoplot(rcki_mod_ext)
-
-
-
-
-#### VISUALIZE ####
-
-rcki_vars_plot <- c(
-  "pa_percent_z",
-  "forest_mixed_base_z",
-  "wetlands_total_base_z",
-   "prcp_38yr_z",
-  "tmax_38yr_z"
-)
-
-
-make_pred_df <- function(var_name, model, data, n = 100) {
-  # baseline at mean for all predictors
-  base_vals <- data %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE))
-  
-  # vary only this variable
-  newdata <- base_vals[rep(1, n), ]
-  newdata[[var_name]] <- seq(
-    min(data[[var_name]], na.rm = TRUE),
-    max(data[[var_name]], na.rm = TRUE),
-    length.out = n
-  )
-  
-  # predicted probability
-  newdata$pred_prob <- predict(model, newdata = newdata, type = "response")
-  newdata$variable <- var_name
-  newdata$x_value <- newdata[[var_name]]
-  
-  newdata %>% dplyr::select(variable, x_value, pred_prob)
-}
-
-
-### PLOT 
-facet_labels_col <- c(
-  pa_percent_z = "Protected Area (%)",
-  tmax_38yr_z = "Max Temp (38-year avg)***",
-  prcp_38yr_z = "Precip (38-year avg)",
-  wetlands_total_base_z = "Wetlands (herb + woody)",
-  forest_mixed_base_z = "Mixed Forest ."
-)
-
-
-facet_labels_ext <- c(
-  pa_percent_z = "Protected Area (%)",
-  tmax_38yr_z = "Max Temp (38-year avg)***",
-  prcp_38yr_z = "Precip (38-year avg) .",
-  wetlands_total_base_z = "Wetlands (herb + woody)***",
-  forest_mixed_base_z = "Mixed Forest ."
-)
-
-
-# COLO
-rcki_predplot_col_df <- map_dfr(rcki_vars_plot, make_pred_df, 
-                                model = rcki_mod_col, 
-                                data = spp_mod_data_col_z)
-
-
-ggplot(rcki_predplot_col_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_labels_col)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Colonization",
-    title = "Marginal Effects of Covariates on Colonization Probability Across Blocks"
-  )
-
-
-# EXT
-rcki_predplot_ext_df <- map_dfr(rcki_vars_plot, make_pred_df, 
-                                model = rcki_mod_ext, 
-                                data = spp_mod_data_ext_z)
-
-
-ggplot(rcki_predplot_ext_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_labels_ext)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Extinction",
-    title = "Marginal Effects of Covariates on Extinction Probability Across Blocks"
-  )
-
-
-
 ########################
 ### MODEL COMPARISON ###
 ########################
@@ -1021,4 +970,3 @@ gt_table <- combined_results %>%
   )
 
 gt_table
-

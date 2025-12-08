@@ -10,6 +10,7 @@ library(tidyr)
 library(magrittr)
 library(purrr)
 library(stringr)
+library(readxl)
 
 # Diagnostics
 library(nnet)
@@ -23,6 +24,7 @@ library(Metrics)
 library(pROC)
 library(rsample)
 library(glmnet)
+library(lme4)
 library(MuMIn)
 library(pscl)
 library(AICcmodavg)
@@ -34,148 +36,359 @@ library(viridis)
 library(gt)
 
 
-### --- DATAFRAMES --- ###
+### --- FLEXIBLE SPECS --- ###
 
-# COMPONENT DFS #
-
-# Zero-filled Species Data (breeders_zf_summary)
-spp_zf_rll <- breeders_zf_summary
-spp_zf_dnr<- dnr_compblocks %>%
-  left_join(spp_zf_rll, by = "atlas_block")
-
-# Raw Covariate data (wibba_covars_raw)
-covars_raw_rll <- wibba_covars_raw
-covars_raw_dnr <- dnr_compblocks %>%
-  left_join(covars_raw_rll, by = "atlas_block")
-
-
-### --- MODEL SPECS --- ###
-
-# MODEL SPECIES #
 spp_name <- "Red-bellied Woodpecker"
 
 
-# NEW DFS #
+### --- DATAFRAMES --- ###
 
-# Species-specific, combined zf, covariate dfs
+# Carry-over DataFrames #
+spp_zf_rll <- read.csv("outputs/data/breeders_zf_summary.csv") 
+covars_raw_rll <- read.csv("outputs/data/covars_raw_all.csv")
 
-# Modeling df for RLL block set
+wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
+blocks_rll <- wibba_summary_rll$atlas_block # vector
+
+blocks_dnr <- read_xlsx("data/summaries/CompBlocks_DNR2023.xlsx") # df
+blocks_dnr <- blocks_dnr$atlas_block # vector
+
+
+# SPECIES RICHNESS / EFFORT PROXY (WIP, RE-ORDER)
+covars_raw_rll <- covars_raw_rll %>%
+  mutate(sr_Diff = sr_Atlas2 - sr_Atlas1)
+
+
+# Covariate Sets #
+factor_covars_all <- c("atlas_block", "common_name", "alpha_code", "transition_state")
+
+stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
+
+land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
+                     "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
+                     "developed_lower_base", "developed_upper_base", "developed_total_base", 
+                     "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
+                     "forest_total_base", "pasture_base", "cropland_base", "pasture_crop_base", 
+                     "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
+                     
+                     "water_open_diff", "barren_land_diff", "shrub_scrub_diff", "grassland_diff",
+                     "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
+                     "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
+                     "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
+                     "forest_total_diff", "pasture_diff", "cropland_diff", "pasture_crop_diff", 
+                     "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
+
+land_covars_base <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
+                      "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
+                      "developed_lower_base", "developed_upper_base", "developed_total_base", 
+                      "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
+                      "forest_total_base", "pasture_base", "cropland_base", "pasture_crop_base", 
+                      "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base")
+
+land_covars_diff <- c("water_open_diff", "barren_land_diff", "shrub_scrub_diff", "grassland_diff",
+                      "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
+                      "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
+                      "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
+                      "forest_total_diff", "pasture_diff", "cropland_diff", "pasture_crop_diff", 
+                      "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
+
+climate_covars_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+
+climate_covars_base <- c("tmax_38yr", "tmin_38yr", "prcp_38yr")
+
+climate_covars_diff <- c("tmax_diff", "tmin_diff", "prcp_diff")
+
+
+
+# New DataFrames #
+# RLL modeling df
 mod_data_rll <- spp_zf_rll %>%
   filter(common_name == spp_name) %>%
-  left_join(
-    covars_raw_rll,
-    by = "atlas_block"
-  )
+  left_join(covars_raw_rll, by = "atlas_block")
 
 write.csv(mod_data_rll, "outputs/data/mod_data_rll.csv", row.names = FALSE)
 
-
-# Modeling df for DNR block set
-mod_data_dnr <- spp_zf_dnr %>%
-  filter(common_name == spp_name) %>%
-  left_join(
-    covars_raw_dnr,
-    by = "atlas_block"
-  )
+# DNR modeling df
+mod_data_dnr <- spp_zf_rll %>%
+  filter(atlas_block %in% blocks_dnr, 
+         common_name == spp_name) %>%  
+  left_join(covars_raw_rll, by = "atlas_block")
 
 write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
 
-# State-specific modeling subsets
-### Separate data into bins where A2 detection is either 1 or 0; not necessarily
-# in precise probabilities between colo, pres, abs, ext, but more what promotes
-# 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
-# what promotes det = 0. 
 
-# RLL Subsets #
-# Colonization-Absence Subset
-mod_colabs_rll_z <- mod_data_rll %>%
-  filter(transition_state %in% c("Colonization", "Absence")) %>% # subset by response
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
-  mutate(
-    col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0) # assign numeric binomial state identifier
-  )
-
-# Extinction-Persistence
-mod_extper_rll_z <- mod_data_rll %>%
-  filter(transition_state %in% c("Extinction", "Persistence")) %>% # subset by response
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code),
-      .fns = ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
-  mutate(
-    ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0) # assign numeric binomial state identifier
-  )  
-
-
-# DNR Subsets #
-# Colonization-Absence Subset
-mod_colabs_dnr_z <- mod_data_dnr %>%
-  filter(transition_state %in% c("Colonization", "Absence")) %>% # subset by response
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code), # do not standardize
-      .fns = ~ as.numeric(scale(.)), # z-standardize
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
-  mutate(
-    col_abs = ifelse(transition_state %in% c("Colonization"), 1, 0) # assign numeric binomial state identifier
-  )
-
-# Extinction-Persistence
-mod_extper_dnr_z <- mod_data_dnr %>%
-  filter(transition_state %in% c("Extinction", "Persistence")) %>% # subset by response
-  mutate(
-    across(
-      .cols = -c(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code), # do not standardize
-      .fns = ~ as.numeric(scale(.)), # z-standardize
-      .names = "{.col}_z"
-    )
-  ) %>%
-  dplyr::select(atlas_block, transition_state, det_Atlas1, det_Atlas2, common_name, alpha_code, ends_with("_z")) %>%
-  mutate(
-    ext_per = ifelse(transition_state %in% c("Extinction"), 1, 0) # assign numeric binomial state identifier
-  )
-
-
-
-############################
-### COVARIATE PROCESSING ### 
-############################
-
-### --- PROCESS --- ###
-### Species-specific thinning of covariates for modeling in two steps:
-# 1) Screen for biologically relevant covariates (for landcover and climate)
-# on a species-specific basis, ie. within-group reduction; run pairwise 
-# correlations, VIF to assess multi-collinearity (alt. approach: PCA &/or CLT)
-# 2) Model selection (AICc) from biologically plausible candidates with both 
-# additive and interaction terms
 
 ### -- COVARIATE THINNING --- ###
-# Construct lists of predictors
 
-land_covars_all <- 
-land_covars_base <- 
-land_covars_diff <- 
+# PRE-SCREENING #
+### Screen for biologically relevant covariates (for landcover and climate)
+# on a species-, state-specific basis, ie. within-group reduction; run pairwise 
+# correlations, VIF to assess multi-collinearity (alt. approach: PCA &/or CLT)
+# and further thin predictors
 
-climate_covars_all <- 
-climate_covars_base <- 
-climate_covars_diff <- 
+# Full covariate sets
+factor_covars_all
+stable_covars_all
+land_covars_all
+  land_covars_base
+  land_covars_diff
+climate_covars_all
+  climate_covars_base
+  climate_covars_diff
 
 
-other_covars <- c()
+# Species-specific Thinned Covariate Sets
+spp_name <- "Red-bellied Woodpecker"
+
+
+factor_covars_reduced <- c("atlas_block", "transition_state")
+
+stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
+
+land_covars_reduced <- c("shrub_scrub_base", 
+                         "grassland_base", "developed_total_base",
+                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
+                         "pasture_crop_base", "wetlands_total_base",
+                         
+                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
+
+covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
+
+
+# State-specific Covariate Sets
+### Separate data into bins where A2 detection is either 1 or 0; not necessarily
+# in precise probabilities between colo, pers, abs, ext, but more what promotes
+# 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
+# what promotes det = 0. 
+### Scaling of covars w/in subsets for relevant normalized values
+
+spp_name <- "Red-bellied Woodpecker"
+
+# RLL
+mod_colabs_rll_z <- mod_data_rll %>%
+  filter(transition_state %in% c("Colonization", "Absence")) %>% # filter by state
+  dplyr::select(all_of(factor_covars_reduced), # select numeric, factor covars
+                all_of(covars_numeric_reduced)) %>%
+  mutate(across( # scale only numeric covars
+    .cols = all_of(covars_numeric_reduced),
+    .fns = ~ as.numeric(scale(.)),
+    .names = "{.col}_z"
+  )) %>%
+  mutate(col_abs = ifelse(transition_state == "Colonization", 1, 0)) %>% # binomial response variable
+  dplyr::select(all_of(factor_covars_reduced), # columns to keep
+         ends_with("_z"),
+         col_abs)
+
+mod_extper_rll_z <- mod_data_rll %>%
+  filter(transition_state %in% c("Extinction", "Persistence")) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                all_of(covars_numeric_reduced)) %>%
+  mutate(across(
+    .cols = all_of(covars_numeric_reduced),
+    .fns = ~ as.numeric(scale(.)),
+    .names = "{.col}_z"
+  )) %>%
+  mutate(ext_per = ifelse(transition_state == "Extinction", 1, 0)) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                ends_with("_z"),
+                ext_per)
+
+# DNR
+mod_colabs_dnr_z <- mod_data_dnr %>%
+  filter(transition_state %in% c("Colonization", "Absence")) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                all_of(covars_numeric_reduced)) %>%
+  mutate(across(
+    .cols = all_of(covars_numeric_reduced),
+    .fns = ~ as.numeric(scale(.)),
+    .names = "{.col}_z"
+  )) %>%
+  mutate(col_abs = ifelse(transition_state == "Colonization", 1, 0)) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                ends_with("_z"),
+                col_abs)
+
+mod_extper_dnr_z <- mod_data_dnr %>%
+  filter(transition_state %in% c("Extinction", "Persistence")) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                all_of(covars_numeric_reduced)) %>%
+  mutate(across(
+    .cols = all_of(covars_numeric_reduced),
+    .fns = ~ as.numeric(scale(.)),
+    .names = "{.col}_z"
+  )) %>%
+  mutate(ext_per = ifelse(transition_state == "Extinction", 1, 0)) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                ends_with("_z"),
+                ext_per)
+
+
+# CORRELATIONS, COLLINEARITY # 
+
+# Pairwise Correlations
+covar_cols_colabs_rll <- grep("_z$", names(mod_colabs_rll_z), value = TRUE)
+covar_cols_extper_rll <- grep("_z$", names(mod_extper_rll_z), value = TRUE)
+
+covar_cols_colabs_dnr <- grep("_z$", names(mod_colabs_dnr_z), value = TRUE)
+covar_cols_extper_dnr <- grep("_z$", names(mod_extper_dnr_z), value = TRUE)
+
+
+M1 <- cor(mod_colabs_rll_z[, covar_cols_colabs_rll], use = "pairwise.complete.obs")
+M2 <- cor(mod_extper_rll_z[, covar_cols_extper_rll], use = "pairwise.complete.obs")
+
+M3 <- cor(mod_colabs_dnr_z[, covar_cols_colabs_dnr], use = "pairwise.complete.obs")
+M4 <- cor(mod_extper_dnr_z[, covar_cols_extper_dnr], use = "pairwise.complete.obs")
+
+
+corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
+
+corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
+
+
+high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE)
+apply(high_corr1, 1, function(i) cat(rownames(M1)[i[1]], "-", colnames(M1)[i[2]], "r =", M1[i[1],i[2]], "\n"))
+
+high_corr2 <- which(abs(M2) > 0.7 & abs(M2) < 1, arr.ind = TRUE)
+apply(high_corr2, 1, function(i) cat(rownames(M2)[i[1]], "-", colnames(M2)[i[2]], "r =", M2[i[1],i[2]], "\n"))
+
+high_corr3 <- which(abs(M3) > 0.7 & abs(M3) < 1, arr.ind = TRUE)
+apply(high_corr3, 1, function(i) cat(rownames(M3)[i[1]], "-", colnames(M3)[i[2]], "r =", M3[i[1],i[2]], "\n"))
+
+high_corr4 <- which(abs(M4) > 0.7 & abs(M4) < 1, arr.ind = TRUE)
+apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]], "r =", M4[i[1],i[2]], "\n"))
+
+
+# Correlation Thinned Covariate Sets
+factor_covars_reduced
+
+land_covars_reduced <- c("shrub_scrub_base", "pasture_crop_base",
+                         "grassland_base","developed_total_base",
+                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
+                         "wetlands_total_base","forest_total_diff")
+
+climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+
+stable_covars_reduced <- c("sr_Diff", "pa_percent")
+
+covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
+covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
+
+
+
+# VIF
+
+vif_model1 <- glm(col_abs ~ ., data = mod_colabs_rll_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
+vif(vif_model1)
+alias(vif_model1)
+
+vif_model2 <- glm(ext_per ~ ., data = mod_extper_rll_z[, c("ext_per", covars_numeric_reduced_z)], family = binomial)
+vif(vif_model2)
+alias(vif_model2)
+
+vif_model3 <- glm(col_abs ~ ., data = mod_colabs_dnr_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
+vif(vif_model3)
+alias(vif_model3)
+
+vif_model4 <- glm(ext_per ~ ., data = mod_extper_dnr_z[, c("ext_per", covars_numeric_reduced_z)], family = binomial)
+vif(vif_model4)
+alias(vif_model4)
+
+# VIF Thinned Covariate Sets
+# Final set prior to AICc/Model Selection process
+
+factor_covars_final <- c("atlas_block")
+
+land_covars_final <- c("shrub_scrub_base", "grassland_base","developed_total_base",
+                       "forest_deciduous_base", "forest_evergreen_base", 
+                       "forest_mixed_base", "wetlands_total_base","forest_total_diff")
+
+climate_covars_final <- climate_covars_reduced # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
+
+stable_covars_final <- stable_covars_reduced # "sr_Diff", "pa_percent"
+
+
+covars_numeric_final <- c("land_covars_final", "climate_covars_final", "stable_covars_final")
+covars_numeric_final_z <- paste0(covars_numeric_final, "_z")
+
+covars_all_final <- c(covars_numeric_reduced_z, factor_covars_final)
+# w/in each modeling df: col_abs or ext_per
+
+
+
+#######################
+### MODEL SELECTION ### 
+#######################
+
+### --- PROCESS --- ###
+
+### AICc from pre-screened, correlation-controlled, biologically plausible 
+# candidates with both additive and interaction terms; include atlas_block as  
+# a random effect, as both block sets are sub-samples of full Atlas block set.    ### Does this make sense? 
+                                                                                  # Are those that were chosen/completed
+                                                                                  # to a satisfactory degree "random" enough?
+
+# MuMIn::dredge() automates candidate set construction of all main effect covar combos
+# but user must manually define, limit interaction terms. User should also further
+# restrict candidate models prior to running dredge(), otherwise models will not 
+# converge and/or overload processor. 
+# Also: add atlas_block as a random effect.
+
+### Two directions and/or steps for candidate model thinning:
+# 1) Partitioned model sets, ie. bin covar groups ('land', 'climate', etc.), run model subsets
+# 2) Targeted, manually constructed 2-way interactions, ie. choose which interactions to run
+
+# Covar set: covars_all_final
+
+
+### APPROACH 1: Partition Covariate Models ###
+
+
+# DataFrames # 
+mod_colabs_rll_aicc <- mod_colabs_rll_z[, c("col_abs", covars_all_final)]
+mod_extper_rll_aicc <- mod_extper_rll_z[, c("ext_per", covars_all_final)]
+
+mod_colabs_dnr_aicc <- mod_colabs_dnr_z[, c("col_abs", covars_all_final)]
+mod_extper_dnr_aicc <- mod_extper_dnr_z[, c("ext_per", covars_all_final)]
+
+
+# Models #
+# Model structure
+### Step needed to create, set limit for interactions
+
+mod_form_colabs <- as.formula(paste("col_abs ~ (", paste(covars_all_final, collapse = " + "), ")^2")) # ^2 = max 2-way interactions
+
+
+mod_form_extper <- as.formula(paste("ext_per ~ (", paste(covars_all_final, collapse = " + "), ")^2"))
+
+# Model data
+# RLL
+full_mod_colabs_rll <- glm(mod_form_colabs, data = mod_colabs_rll_aicc, family = binomial)
+full_mod_extper_rll <- glm(mod_form_extper, data = mod_extper_rll_aicc, family = binomial)
+
+# DNR
+full_mod_colabs_dnr <- glm(mod_form_colabs, data = mod_colabs_dnr_aicc, family = binomial)
+full_mod_extper_dnr <- glm(mod_form_extper, data = mod_extper_dnr_aicc, family = binomial)
+
+
+# Model Selection # 
+### Use MuMIn::dredge() to automate model selection process across all possible subsets
+# w/o having to manually code/write all formulas of interest. Created model form code
+# above b/c dredge() by default only tests main (additive) effects, ie. need to add manually.
+
+options(na.action = "na.fail") # required for MuMIn::dredge()
+
+# RLL
+dredge_colabs_rll <- dredge(full_model_colabs_rll, rank = "AICc")
+dredge_extper_rll <- dredge(full_model_extper_rll, rank = "AICc")
+
+# DNR
+dredge_colabs_dnr <- dredge(full_model_colabs_dnr, rank = "AICc")
+dredge_extper_dnr <- dredge(full_model_extper_dnr, rank = "AICc")
+
+
+### APPROACH B: MANUAL APPROACH
 
 
 

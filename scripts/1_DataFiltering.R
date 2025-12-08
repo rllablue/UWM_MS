@@ -139,17 +139,18 @@ sr_summary <- observations_filt %>%
     sr_Atlas1 = ifelse(checklists_Atlas1 == 0, NA, replace_na(sr_Atlas1, 0)),
     sr_Atlas2 = ifelse(checklists_Atlas2 == 0, NA, replace_na(sr_Atlas2, 0)),
     sr_total = ifelse(is.na(sr_Atlas1) & is.na(sr_Atlas2), NA, replace_na(sr_total, 0)),
-    sr_diff = sr_Atlas2 - sr_Atlas1,
-    sr_diff_z = scale(sr_diff)[, 1]
+    sr_diff = sr_Atlas2 - sr_Atlas1
   ) %>%
   select(atlas_block, sr_total, sr_Atlas1, sr_Atlas2, sr_diff, sr_diff_z)
 
 
 ## --- ATLAS BLOCK SUMMARY DF --- ##
 
-blocks_all <- checklists_filt %>%
-  distinct(atlas_block) %>%
-  arrange(atlas_block)
+blocks_all <- checklists_filt %>% # df
+  distinct(atlas_block)
+
+## ^ OR
+blocks_all <- blocks_all$atlas_block # vector
 
 wibba_summary_full <- blocks_all %>%
   left_join(checklist_summary, by = "atlas_block") %>%
@@ -158,26 +159,27 @@ wibba_summary_full <- blocks_all %>%
   mutate(
     mins_Atlas1 = coalesce(mins_Atlas1_supp, mins_Atlas1),
     mins_total = rowSums(across(c(mins_Atlas1, mins_Atlas2)), na.rm = TRUE),
-    mins_diff = mins_Atlas2 - mins_Atlas1,
-    mins_diff_z = scale(mins_diff)[, 1]
+    mins_diff = mins_Atlas2 - mins_Atlas1
   ) %>%
   select(-mins_Atlas1_supp)
 
 wibba_summary_full <- wibba_summary %>%
   left_join(sr_summary, by = "atlas_block")
 
-
+write.csv(wibba_summary_full, "data/summaries/wibba_summary_full.csv")
 
 #######################
 ### COMPARABLE DATA ###
 #######################
 
-## --- FILTER COMPARABLE BLOCKS (RLL) --- ##
+## --- COMPARABLE BLOCKS: RLL --- ##
 
 # Remove blocks missing checklists in either atlas period
 # AND blocks with 0 sr, which are not "empty" sed lists but lists that had invalidated bird records that are not in the ebd
 
-wibba_summary_comp <- wibba_summary_full %>%
+# Df
+wibba_summary_rll <- wibba_summary_full %>%
+  ## SOMETHING HERE W/ %IN% blocks_rll <- wibba_summary_rll$atlas_block
   mutate(across(
     c(checklists_Atlas1, checklists_Atlas2, sr_Atlas1, sr_Atlas2), 
     ~replace_na(., 0)
@@ -189,26 +191,32 @@ wibba_summary_comp <- wibba_summary_full %>%
     sr_Atlas2 > 0
   )
 
-sr_summary_comp <- sr_summary %>%
-  filter(atlas_block %in% blocks_comp)
+write.csv(wibba_summary_rll, "data/summaries/wibba_summary_rll.csv")
 
-blocks_comp <- wibba_summary_comp$atlas_block
+# Vector
+blocks_rll <- wibba_summary_rll$atlas_block
 
-checklists_comp <- checklists_filt %>%
-  filter(atlas_block %in% blocks_comp)
+# Related summaries
+sr_summary_rll <- sr_summary %>%
+  filter(atlas_block %in% blocks_rll)
 
-observations_comp <- observations_filt %>%
-  filter(atlas_block %in% blocks_comp)
+checklists_summary_rll <- checklists_filt %>%
+  filter(atlas_block %in% blocks_rll)
+
+observations_summary_rll <- observations_filt %>%
+  filter(atlas_block %in% blocks_rll)
 
 
+### --- COMPARABLE BLOCKS: DNR --- ###
 
+# Vector
+blocks_dnr <- read_xlsx("data/summaries/CompBlocks_DNR2023.xlsx") # df
+blocks_dnr <- blocks_dnr$atlas_block # vector
 
+# Df
+wibba_summary_dnr <- wibba_summary_rll %>%
+  filter(atlas_block %in% blocks_dnr)
 
-
-### --- COMPARABLE BLOCKS (DNR) --- ###
-
-wibba_summary_dnrcomp <- dnr_compblocks %>%
-  left_join(wibba_summary_comp, by = "atlas_block")
-
-sr_summary_dnrcomp <- sr_summary %>%
+# Related summaries
+sr_summary_dnr <- sr_summary %>%
   filter(atlas_block %in% dnr_compblocks)

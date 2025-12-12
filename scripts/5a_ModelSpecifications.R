@@ -567,36 +567,355 @@ formatted_tables <- BuildTables(
   dredge_results_list = results_partitioned
 )
 
-
-# Reduced covar sets by block set, response
+# AICc, Importance-thinned Covariate Sets
+### Burnham & Anderson 2002:
+# Importance ≥ 0.80	--> Strong evidence the covariate belongs in the final model(s).
+# Importance ~= 0.50–0.80	--> Moderate evidence; include if biologically meaningful.
 
 # RLL, ColAbs
+formatted_tables$RLL_col_abs_land
+  # >= 0.8: mixed_forest_base_z, wetlands_total_base_z, developed_total_base_z
+  # ~= 0.5-0.8: forest_evergreen_base_z, shrub_scrub_base_z, forest_deciduous_base_z
+formatted_tables$RLL_col_abs_climate
+  # >= 0.8: tmax_38yr_z, prcp_38yr_z, prcp_diff_z
+  # ~= 0.5-0.8: none
+formatted_tables$RLL_col_abs_stable
+  # >= 0.8: pa_percent_z, sr_Diff_z
+  # ~= 0.5-0.8: n/a
 
 # RLL, ExtPer
+formatted_tables$RLL_ext_per_land
+  # >= 0.8: none
+  # ~= 0.5-0.8: forest_total_diff_z, forest_mixed_base_z, forest_evergreen_base_z, wetlands_total_base_z
+formatted_tables$RLL_ext_per_climate
+  # >= 0.8: none
+  # ~= 0.5-0.8: tmax_38yr_z, prcp_diff_z, tmin_diff_z
+formatted_tables$RLL_ext_per_stable 
+  # >= 0.8: sr_Diff_z
+  # ~= 0.5-0.8: pa_percent_z 
 
 
 # DNR, ColAbs
-
+formatted_tables$DNR_col_abs_land
+  # >= 0.8: forest_mixed_base_z, developed_total_base_z, wetlands_total_base_z
+  # ~= 0.5-0.8: grassland_base_z, forest_deciduous_base_z
+formatted_tables$DNR_col_abs_climate
+  # >= 0.8: tmax_38yr_z, prcp_38yr_z
+  # ~= 0.5-0.8: none
+formatted_tables$DNR_col_abs_stable
+  # >= 0.8: pa_percent_z, sr_Diff_z
+  # ~= 0.5-0.8: n/a
 
 # DNR, ExtPer
+formatted_tables$DNR_ext_per_land
+  # >= 0.8: forest_mixed_base_z, developed_total_base_Z, wetlands_total_base_z, 
+  # ~= 0.5-0.8: grassland_base_z, forest_deciduous_base_z
+formatted_tables$DNR_ext_per_climate
+  # >= 0.8: tmax_38yr_z, prcp_38yr_z
+  # ~= 0.5-0.8: none
+formatted_tables$DNR_ext_per_stable
+  # >= 0.8: pa_percent_z, sr_Diff_z
+  # ~= 0.5-0.8: n/a
+
+
+RLL_col_abs_covs <- c(
+  "developed_total_base_z",
+  "forest_deciduous_base_z",
+  "forest_evergreen_base_z",
+  "forest_mixed_base_z",
+  "forest_total_diff_z",
+  "grassland_base_z",
+  "shrub_scrub_base_z",
+  "wetlands_total_base_z",
+  "tmax_38yr_z",
+  "prcp_38yr_z",
+  "prcp_diff_z",
+  "pa_percent_z",
+  "sr_Diff_z"
+)
+
+RLL_ext_per_covs <- c(
+  "forest_mixed_base_z",
+  "forest_evergreen_base_z",
+  "forest_total_diff_z",
+  "wetlands_total_base_z",
+  "tmax_38yr_z",
+  "prcp_diff_z",
+  "tmin_diff_z",
+  "pa_percent_z",
+  "sr_Diff_z"
+)
+
+
+DNR_col_abs_covs <- c(
+  "developed_total_base_z",
+  "forest_mixed_base_z",
+  "wetlands_total_base_z",
+  "grassland_base_z",
+  "forest_deciduous_base_z",
+  "tmax_38yr_z",
+  "prcp_38yr_z",
+  "pa_percent_z",
+  "sr_Diff_z"
+)
+
+DNR_ext_per_covs <- c(
+  "forest_mixed_base_z",
+  "developed_total_base_z",
+  "wetlands_total_base_z",
+  "grassland_base_z",
+  "forest_deciduous_base_z",
+  "tmax_38yr_z",
+  "prcp_38yr_z",
+  "pa_percent_z",
+  "sr_Diff_z"
+)
+
+
+# Visualize
+
+# Data formatting
+all_imp <- dplyr::bind_rows(formatted_tables, .id = "table_name") # combine into single long table
+
+all_imp <- all_imp %>% # cleaner id for x-axis
+  dplyr::mutate(
+    block_response_part = paste(block_set, response, partition, sep = "_"),
+    covariate = factor(covariate)
+  )
+
+covs <- unique(all_imp$covariate) # covariate object
+
+separator_df <- data.frame( # aesthetic: white space separating block sets
+  block_response_part = "separator",
+  covariate = covs,
+  importance = NA,
+  block_set = NA,
+  response = NA,
+  partition = NA
+)
+
+all_imp_sep <- dplyr::bind_rows(all_imp, separator_df) # aesthetic: put white space in table
+
+all_imp_sep$block_response_part <- factor( # order factor levels
+  all_imp_sep$block_response_part,
+  levels = c(
+    "RLL_col_abs_land",
+    "RLL_col_abs_climate",
+    "RLL_col_abs_stable",
+    "RLL_ext_per_land",
+    "RLL_ext_per_climate",
+    "RLL_ext_per_stable",
+    
+    "separator",
+    
+    "DNR_col_abs_land",
+    "DNR_col_abs_climate",
+    "DNR_col_abs_stable",
+    "DNR_ext_per_land",
+    "DNR_ext_per_climate",
+    "DNR_ext_per_stable"
+  )
+)
+
+x_labels_pretty <- c( # aesthetic: asix labels
+
+  "RLL_col_abs_land"    = "RLL: Colonization (Land)",
+  "RLL_col_abs_climate" = "RLL: Colonization (Climate)",
+  "RLL_col_abs_stable"  = "RLL: Colonization (Stable)",
+  "RLL_ext_per_land"    = "RLL: Extinction (Land)",
+  "RLL_ext_per_climate" = "RLL: Extinction (Climate)",
+  "RLL_ext_per_stable"  = "RLL: Extinction (Stable)",
+  
+  "separator" = "",
+  
+  "DNR_col_abs_land"    = "DNR: Colonization (Land)",
+  "DNR_col_abs_climate" = "DNR: Colonization (Climate)",
+  "DNR_col_abs_stable"  = "DNR: Colonization (Stable)",
+  "DNR_ext_per_land"    = "DNR: Extinction (Land)",
+  "DNR_ext_per_climate" = "DNR: Extinction (Climate)",
+  "DNR_ext_per_stable"  = "DNR: Extinction (Stable)"
+)
+
+y_labels <- c( # aesthetic: y-axis labels
+  
+  "(Intercept)"              = "(Intercept)",
+  "developed_total_base_z"  = "Developed (%)",
+  "forest_deciduous_base_z" = "Deciduous Forest (%)",
+  "forest_evergreen_base_z" = "Evergreen Forest (%)",
+  "forest_mixed_base_z"     = "Mixed Forest (%)",
+  "forest_total_diff_z"     = "Forest Change (%)",
+  "grassland_base_z"        = "Grassland (%)",
+  "shrub_scrub_base_z"      = "Shrub/Scrub (%)",
+  "wetlands_total_base_z"   = "Wetlands (%)",
+  "prcp_38yr_z"             = "Avg Precip",
+  "prcp_diff_z"             = "Δ Precip",
+  "tmax_38yr_z"             = "Avg Tmax",
+  "tmax_diff_z"             = "Δ Tmax",
+  "tmin_diff_z"             = "Δ Tmin",
+  "pa_percent_z"            = "Protected Area (%)",
+  "sr_Diff_z"               = "Δ Species Richness"
+)
+
+# ggplot() Vis
+# Heatmap of importance score by covariate, block set, response
+ggplot(all_imp_sep, aes(x = block_response_part,
+                        y = covariate,
+                        fill = importance)) +
+  geom_tile(color = NA) +   # <--- No borders anywhere
+  scale_fill_viridis_c(option = "viridis", name = "Importance",
+                       na.value = "white") +
+  scale_x_discrete(labels = x_labels_pretty) +
+  scale_y_discrete(labels = y_labels) + 
+  labs(
+    x = "Model Set (Response, Block Set)",
+    y = "Covariate"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+
+
 
 
 
 
 ### --- STEP 2: "Manual" Interaction Models --- ###
 
+### Carry-ins ###
+# Model data
+mod_colabs_rll_z
+mod_extper_rll_z
+mod_colabs_dnr_z
+mod_extper_dnr_z
+
+# Thinned covar sets by block set, response
+RLL_col_abs_covs
+RLL_ext_per_covs
+DNR_col_abs_covs
+DNR_ext_per_covs
 
 
+### Model Construction ###
+
+# Interactions #
+# Custom list
+pa_int_covs <- c(
+  "developed_total_base_z",
+  "forest_total_diff_z",
+  "wetlands_total_base_z",
+  "forest_mixed_base_z",
+  "tmax_38yr_z",
+  "sr_Diff_z"
+)
+
+# Helper: build interaction terms (w/ PA)
+BuildInteractions <- function(response, covars, pa_ints_list) {
+  
+  main_terms <- covars
+  int_covs <- intersect(covars, pa_int_list)
+  int_terms <- paste0("pa_percent_z:", int_covs)
+  
+  combo <- paste(c(main_terms, int_terms), collapse = " + ")
+  as.formula(paste(response, "~", rhs))
+
+}
+
+# Build global models
+# Subset data
+All_model_data <- list(
+  RLL_col_abs  = mod_colabs_rll_z,
+  RLL_ext_per  = mod_extper_rll_z,
+  DNR_col_abs  = mod_colabs_dnr_z,
+  DNR_ext_per  = mod_extper_dnr_z
+)
+
+All_covariates <- list(
+  RLL_col_abs  = RLL_col_abs_covs,
+  RLL_ext_per  = RLL_ext_per_covs,
+  DNR_col_abs  = DNR_col_abs_covs,
+  DNR_ext_per  = DNR_ext_per_covs
+)
+
+All_responses <- list(
+  RLL_col_abs  = "col_abs",
+  RLL_ext_per  = "ext_per",
+  DNR_col_abs  = "col_abs",
+  DNR_ext_per  = "ext_per"
+)
+
+# Construct model
+global_formulas <- lapply(names(All_covariates), function(n) {
+  BuildInteractions(
+    All_responses[[n]], 
+    All_covariates[[n]],
+    pa_int_list = PA_interaction_covs
+  )
+})
+names(global_formulas) <- names(All_covariates)
 
 
+## Run, Fit ###
+# Individual models for each block set, response
+
+# Helper: automate model fit, rank
+options(na.action = "na.fail") # required for dredge()
+
+RunSelection <- function(formula, data) {
+  fit <- glm(formula, data = data, family = binomial)
+  dredge(fit, rank = "AICc")
+}
+
+Model_selection_tables <- lapply(names(global_formulas), function(n) {
+  RunSelection(global_formulas[[n]], All_model_data[[n]])
+})
+names(Model_selection_tables) <- names(global_formulas)
 
 
+## Extract Results ##
+# Helper: Reformat dredge data to long
+DredgeToLong <- function(dredge_df, model_name, response_lhs) {
+  
+  meta_cols <- c("df", "logLik", "AICc", "delta", "weight")
+  pred_cols <- setdiff(colnames(dredge_df), meta_cols)
+  
+  # recover RHS formulas based on variables present (non-NA)
+  rhs_formulas <- apply(dredge_df[, pred_cols, drop = FALSE], 1, function(row) {
+    included <- pred_cols[!is.na(row)]
+    if (length(included) == 0) "1" else paste(included, collapse = " + ")
+  })
+  
+  full_formulas <- paste(response_lhs, "~", rhs_formulas)
+  
+  data.frame(
+    model_name = model_name,
+    model_id   = paste0(model_name, "_m", seq_len(nrow(dredge_df))),
+    formula    = full_formulas,
+    AICc       = dredge_df$AICc,
+    delta      = dredge_df$delta,
+    weight     = dredge_df$weight,
+    stringsAsFactors = FALSE
+  )
+}
 
+response_map <- All_responses
 
+Long_models_list <- lapply(names(Model_selection_tables), function(n) {
+  dredge_tbl <- as.data.frame(Model_selection_tables[[n]])
+  DredgeToLong(dredge_tbl, n, response_map[[n]])
+})
 
+Long_models <- do.call(rbind, Long_models_list)
 
+names(Long_models_list) <- names(Model_selection_tables)
 
-
+# AICc results by block set, response
+RLL_col_abs_models  <- Long_models_list$RLL_col_abs
+RLL_ext_per_models  <- Long_models_list$RLL_ext_per
+DNR_col_abs_models  <- Long_models_list$DNR_col_abs
+DNR_ext_per_models  <- Long_models_list$DNR_ext_per
 
 
 

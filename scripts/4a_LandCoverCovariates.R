@@ -2,6 +2,10 @@
 ### SETUP ###
 #############
 
+### --- NOTES --- ###
+
+# 12/14/2025: update binned covars to group grass_pasture_crop
+
 ## --- PACKAGES --- ##
 
 library(dplyr)

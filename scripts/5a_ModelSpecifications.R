@@ -44,7 +44,7 @@ spp_name <- "Red-bellied Woodpecker"
 ### --- DATAFRAMES --- ###
 
 # Carry-over DataFrames #
-spp_zf_rll <- read.csv("outputs/data/breeders_zf_summary.csv") 
+spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") 
 covars_raw_rll <- read.csv("outputs/data/covars_raw_all.csv")
 
 wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
@@ -56,7 +56,9 @@ blocks_dnr <- blocks_dnr$atlas_block # vector
 
 # SPECIES RICHNESS / EFFORT PROXY (WIP, RE-ORDER)
 covars_raw_rll <- covars_raw_rll %>%
-  mutate(sr_Diff = sr_Atlas2 - sr_Atlas1)
+  mutate(sr_Diff = sr_Atlas2 - sr_Atlas1,
+         grass_pasture_crop_base = grassland_base + pasture_crop_base,
+         grass_pasture_crop_diff = grassland_diff + pasture_crop_diff)
 
 
 # Covariate Sets #
@@ -64,18 +66,20 @@ factor_covars_all <- c("atlas_block", "common_name", "alpha_code", "transition_s
 
 stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
 
-land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
+land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", 
                      "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
                      "developed_lower_base", "developed_upper_base", "developed_total_base", 
                      "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                     "forest_total_base", "pasture_base", "cropland_base", "pasture_crop_base", 
+                     "forest_total_base", "pasture_base", "cropland_base", 
+                     "grassland_base", "pasture_crop_base", "grass_pasture_crop_base",
                      "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
                      
-                     "water_open_diff", "barren_land_diff", "shrub_scrub_diff", "grassland_diff",
+                     "water_open_diff", "barren_land_diff", "shrub_scrub_diff", 
                      "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
                      "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
                      "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
-                     "forest_total_diff", "pasture_diff", "cropland_diff", "pasture_crop_diff", 
+                     "forest_total_diff", "pasture_diff", "cropland_diff", 
+                     "grassland_diff", "pasture_crop_diff", "grass_pasture_crop_diff",
                      "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
 
 land_covars_base <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
@@ -145,12 +149,13 @@ factor_covars_reduced <- c("atlas_block", "transition_state")
 
 stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
 
-land_covars_reduced <- c("shrub_scrub_base", 
-                         "grassland_base", "developed_total_base",
+land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
+                         "grass_pasture_crop_base", "developed_total_base",
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "pasture_crop_base", "wetlands_total_base",
+                         "wetlands_total_base",
                          
-                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
+                          "grass_pasture_crop_diff",
+                          "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 
 covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
 
@@ -263,10 +268,12 @@ apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]]
 # Correlation Thinned Covariate Sets
 factor_covars_reduced
 
-land_covars_reduced <- c("shrub_scrub_base", "pasture_crop_base",
-                         "grassland_base","developed_total_base",
+land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
+                         "grass_pasture_crop_base", "developed_total_base",
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_total_base","forest_total_diff")
+                         "wetlands_total_base",
+                         
+                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 
 climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
@@ -296,21 +303,25 @@ vif(vif_model4)
 alias(vif_model4)
 
 # VIF Thinned Covariate Sets
+# Run 2+ x to check incoming and reduced/outgoing covariate set
 # Final set prior to AICc/Model Selection process
 
 factor_covars_reduced <- c("atlas_block")
 
-land_covars_reduced <- c("shrub_scrub_base", "grassland_base","developed_total_base",
-                       "forest_deciduous_base", "forest_evergreen_base", 
-                       "forest_mixed_base", "wetlands_total_base","forest_total_diff")
+land_covars_reduced <- c("shrub_scrub_base", "grass_pasture_crop_base", 
+                         "developed_total_base", "forest_mixed_base",
+                         "wetlands_total_base",
+                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
 
-climate_covars_reduced # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
+climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 climate_covars_reduced_z <- paste0(climate_covars_reduced, "_z")
 
 stable_covars_reduced # "sr_Diff", "pa_percent"
 stable_covars_reduced_z <- paste0(stable_covars_reduced, "_z")
 
+covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
+covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 #######################
@@ -349,11 +360,12 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 # Covariates #
 factor_covars_reduced # atlas_block
 
-land_covars_reduced_z # shrub_scrub_base, grassland_base, developed_total_base,
-                    # forest_deciduous_base, forest_evergreen_base, 
-                    # forest_mixed_base, wetlands_total_base, forest_total_diff
+land_covars_reduced_z # "shrub_scrub_base", "grass_pasture_crop_base", 
+                      # "developed_total_base", "forest_mixed_base",
+                      # "wetlands_total_base",
+                      # "developed_total_diff", "forest_total_diff", "wetlands_total_diff"
 
-climate_covars_reduced_z # tmax_38yr, prcp_38yr, tmax_diff, tmin_diff, prcp_diff
+climate_covars_reduced_z # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
 
 stable_covars_reduced_z # sr_Diff, pa_percent
 
@@ -575,8 +587,8 @@ formatted_tables <- BuildTables(
 
 # RLL, ColAbs
 formatted_tables$RLL_col_abs_land
-  # >= 0.8: mixed_forest_base_z, wetlands_total_base_z, developed_total_base_z
-  # ~= 0.5-0.8: forest_evergreen_base_z, shrub_scrub_base_z, forest_deciduous_base_z
+  # >= 0.8: forest_mixed_base_z, developed_total_base_z, grass_pasture_crop_base_z, wetlands_total_base_z
+  # ~= 0.5-0.8: shrub_scrub_base_z, forest_total_diff_z, wetlands_total_diff_z
 formatted_tables$RLL_col_abs_climate
   # >= 0.8: tmax_38yr_z, prcp_38yr_z, prcp_diff_z
   # ~= 0.5-0.8: none
@@ -587,7 +599,7 @@ formatted_tables$RLL_col_abs_stable
 # RLL, ExtPer
 formatted_tables$RLL_ext_per_land
   # >= 0.8: none
-  # ~= 0.5-0.8: forest_total_diff_z, forest_mixed_base_z, forest_evergreen_base_z, wetlands_total_base_z
+  # ~= 0.5-0.8: forest_total_diff_z, grass_pasture_crop_base_z
 formatted_tables$RLL_ext_per_climate
   # >= 0.8: none
   # ~= 0.5-0.8: tmax_38yr_z, prcp_diff_z, tmin_diff_z
@@ -599,7 +611,7 @@ formatted_tables$RLL_ext_per_stable
 # DNR, ColAbs
 formatted_tables$DNR_col_abs_land
   # >= 0.8: forest_mixed_base_z, developed_total_base_z, wetlands_total_base_z
-  # ~= 0.5-0.8: grassland_base_z, forest_deciduous_base_z
+  # ~= 0.5-0.8: none
 formatted_tables$DNR_col_abs_climate
   # >= 0.8: tmax_38yr_z, prcp_38yr_z
   # ~= 0.5-0.8: none
@@ -609,65 +621,91 @@ formatted_tables$DNR_col_abs_stable
 
 # DNR, ExtPer
 formatted_tables$DNR_ext_per_land
-  # >= 0.8: forest_mixed_base_z, developed_total_base_Z, wetlands_total_base_z, 
-  # ~= 0.5-0.8: grassland_base_z, forest_deciduous_base_z
+  # >= 0.8: none
+  # ~= 0.5-0.8: forest_total_diff_z, developed_total_base_z
 formatted_tables$DNR_ext_per_climate
-  # >= 0.8: tmax_38yr_z, prcp_38yr_z
-  # ~= 0.5-0.8: none
+  # >= 0.8: tmax_38yr_z
+  # ~= 0.5-0.8: ptmax_diff_z
 formatted_tables$DNR_ext_per_stable
-  # >= 0.8: pa_percent_z, sr_Diff_z
-  # ~= 0.5-0.8: n/a
+  # >= 0.8: pa_percent_z
+  # ~= 0.5-0.8: sr_Diff_z
+
+################################ WIP FOR NOW #################################
+### Don't use as another importance-based reduction step for now--think I'm oversimplifying model
+# and creating too perfect of a fit (based on competative models in global ranking
+# and ID of uninformative parameters)
+# Ie. Just bring thru same covariates that went in
 
 
 RLL_col_abs_covs <- c(
-  "developed_total_base_z",
-  "forest_deciduous_base_z",
-  "forest_evergreen_base_z",
-  "forest_mixed_base_z",
-  "forest_total_diff_z",
-  "grassland_base_z",
   "shrub_scrub_base_z",
-  "wetlands_total_base_z",
+  "grass_pasture_crop_base_z",
+  "developed_total_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
+  "forest_total_diff_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
+  "tmax_diff_z",
+  "tmin_diff_z",
   "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
 
 RLL_ext_per_covs <- c(
-  "forest_mixed_base_z",
-  "forest_evergreen_base_z",
+  "shrub_scrub_base_z",
+  "grass_pasture_crop_base_z",
+  "developed_total_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
   "forest_total_diff_z",
-  "wetlands_total_base_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
-  "prcp_diff_z",
+  "prcp_38yr_z",
+  "tmax_diff_z",
   "tmin_diff_z",
+  "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
 
 
 DNR_col_abs_covs <- c(
+  "shrub_scrub_base_z",
+  "grass_pasture_crop_base_z",
   "developed_total_base_z",
-  "forest_mixed_base_z",
-  "wetlands_total_base_z",
-  "grassland_base_z",
-  "forest_deciduous_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
+  "forest_total_diff_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
+  "tmax_diff_z",
+  "tmin_diff_z",
+  "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
 
 DNR_ext_per_covs <- c(
-  "forest_mixed_base_z",
+  "shrub_scrub_base_z",
+  "grass_pasture_crop_base_z",
   "developed_total_base_z",
-  "wetlands_total_base_z",
-  "grassland_base_z",
-  "forest_deciduous_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
+  "forest_total_diff_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
+  "tmax_diff_z",
+  "tmin_diff_z",
+  "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
@@ -808,7 +846,8 @@ pa_int_covs <- c(
   "forest_total_diff_z",
   "wetlands_total_base_z",
   "forest_mixed_base_z",
-  "tmax_38yr_z"
+  "tmax_38yr_z",
+  "tmin_diff_z"
   #"sr_Diff_z"
 )
 
@@ -897,6 +936,8 @@ DredgeToLong <- function(dredge_df, model_name, response_lhs) {
     model_name = model_name,
     model_id   = paste0(model_name, "_m", seq_len(nrow(dredge_df))),
     formula    = full_formulas,
+    logLik.    = as.numeric(dredge_df$logLik),
+    K          = dredge_df$df,
     AICc       = dredge_df$AICc,
     delta      = dredge_df$delta,
     weight     = dredge_df$weight,
@@ -964,419 +1005,149 @@ lapply(Top_models_list, function(df) {
 
 
 
+# Identify uninformative parameters 
+### Compare K sets among all models w/ delta < 2 
+# -------------------------------
+# Identify uninformative parameters 
+# -------------------------------
+### Compare K sets among all models with delta < 2 
 
-# Visualize
-### Tidier AICc tables
-PrettyModels <- function(df) {
-  if (nrow(df) == 0) return(df)
-  
-  df |>
-    dplyr::mutate(
-      AICc  = round(AICc, 3),
-      delta = round(delta, 3),
-      weight = round(weight, 4)
-    ) |>
-    dplyr::rename(
-      Model      = model_id,
-      Set        = model_name,
-      Formula    = formula,
-      ΔAICc      = delta,
-      Weight     = weight
-    ) |>
-    dplyr::select(Set, Model, Formula, AICc, ΔAICc, Weight)
+# --- 1. Helper: Get Reference Model (lowest AICc, smallest K as tie-breaker) ---
+GetReferenceModel <- function(df) {
+  df[order(df$AICc, df$K), ][1, ]
 }
 
-Pretty_list <- lapply(Top_models_list, PrettyModels)
-Pretty_list
+# --- Apply to top models ---
+ReferenceModels <- lapply(Top_models_list, GetReferenceModel)
+ReferenceModels  # inspect
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-######################
-### BASIC MODELING ###
-######################
-
-# Modeling w/o covariate thinning, selection
-
-# Species = RBWO
-
-### --- RLL SUBSET --- ###
-
-# Col-Abs
-rbwo_mod_colabs_rll <- glm(col_abs ~  pa_percent_z +
-                         developed_lower_base_z + developed_upper_base_z + 
-                         forest_deciduous_base_z + forest_mixed_base_z +
-                         pasture_crop_base_z + 
-                         forest_total_diff_z + developed_total_diff_z +
-                         tmax_38yr_z + prcp_38yr_z,
-                       data = data_colabs_rll_z, family = binomial)
-summary(rbwo_mod_colabs_rll)
-autoplot(rbwo_mod_colabs_rll)
-
-# Ext-Per
-rbwo_mod_extper_rll <- glm(ext_per ~  pa_percent_z +
-                         developed_lower_base_z + developed_upper_base_z + 
-                         forest_deciduous_base_z + forest_mixed_base_z +
-                         pasture_crop_base_z + 
-                         forest_total_diff_z + developed_total_diff_z +
-                         tmax_38yr_z + prcp_38yr_z,
-                       data = data_extper_rll_z, family = binomial)
-summary(rbwo_mod_extper_rll)
-autoplot(rbwo_mod_extper_rll)
-
-
-
-#### VISUALIZE ####
-
-rbwo_vars_plot <- c(
-  "pa_percent_z",
-  "developed_lower_base_z",
-  "developed_upper_base_z",
-  "forest_mixed_base_z",
-  "forest_deciduous_base_z",
-  "pasture_crop_base_z",
-  "tmax_38yr_z",
-  "prcp_38yr_z",
-  "developed_total_diff_z",
-  "forest_total_diff_z"
-)
-
-
-make_pred_df <- function(var_name, model, data, n = 100) {
-  # baseline at mean for all predictors
-  base_vals <- data %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE))
+# -------------------------------
+# 2. Flag uninformative models
+# -------------------------------
+FlagUninformativeModels <- function(df, aicc_tol = 2) {
+  # Reference model: lowest AICc, tie-break with smallest K
+  ref <- GetReferenceModel(df)
   
-  # vary only this variable
-  newdata <- base_vals[rep(1, n), ]
-  newdata[[var_name]] <- seq(
-    min(data[[var_name]], na.rm = TRUE),
-    max(data[[var_name]], na.rm = TRUE),
-    length.out = n
+  df$extra_K <- df$K - ref$K
+  df$aicc_gain <- ref$AICc - df$AICc
+  
+  df$uninformative_model <- with(
+    df,
+    extra_K > 0 & aicc_gain < aicc_tol
   )
   
-  # predicted probability
-  newdata$pred_prob <- predict(model, newdata = newdata, type = "response")
-  newdata$variable <- var_name
-  newdata$x_value <- newdata[[var_name]]
-  
-  newdata %>% dplyr::select(variable, x_value, pred_prob)
+  df
 }
 
-
-### PLOT ###
-
-# COL-ABS
-facet_colabs <- c(
-  pa_percent_z = "Protected Area ***",
-  developed_lower_base_z = "Open + Lower Development ***",
-  developed_upper_base_z = "Moderate + High Development",
-  forest_mixed_base_z = "Mixed Forest ***",
-  forest_deciduous_base_z = "Deciduous Forest ***",
-  pasture_crop_base_z = "Pasture/Cropland *",
-  tmax_38yr_z = "Max Temp ***",
-  prcp_38yr_z = "Precipitation ***",
-  developed_total_diff_z = "Difference in Total Developed Land *",
-  forest_total_diff_z = "Difference in Total Forest"
-)
-
-rbwo_predplot_colabs_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
-                                   model = rbwo_mod_colabs, 
-                                   data = data_colabs_z)
-
-
-ggplot(rbwo_predplot_colabs_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_colabs)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Colonization",
-    title = "Marginal Effects of Covariates on Colonization Probability Across Blocks"
-  )
-
-
-# EXT-PER
-facet_extper <- c(
-  pa_percent_z = "Protected Area",
-  developed_lower_base_z = "Open + Lower Development",
-  developed_upper_base_z = "Moderate + High Development",
-  forest_mixed_base_z = "Mixed Forest",
-  forest_deciduous_base_z = "Deciduous Forest",
-  pasture_crop_base_z = "Pasture/Cropland .",
-  tmax_38yr_z = "Max Temp *",
-  prcp_38yr_z = "Precipitation",
-  developed_total_diff_z = "Difference in Total Developed Land",
-  forest_total_diff_z = "Difference in Total Forest"
-)
-
-rbwo_predplot_extper_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
-                                   model = rbwo_mod_extper, 
-                                   data = data_extper_z)
-
-
-ggplot(rbwo_predplot_extper_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_extper)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Extinction",
-    title = "Marginal Effects of Covariates on Extinction Probability Across Blocks"
-  )
-
-
-
-#######################
-### DNR COMP BLOCKS ###
-#######################
-
-# Species = RBWO
-
-# Col-Abs
-rbwo_mod_colabs_dnr <- glm(col_abs ~  pa_percent_z +
-                         developed_lower_base_z + developed_upper_base_z + 
-                         forest_deciduous_base_z + forest_mixed_base_z +
-                         pasture_crop_base_z + 
-                         forest_total_diff_z + developed_total_diff_z +
-                         tmax_38yr_z + prcp_38yr_z,
-                       data = data_colabs_dnr_z, family = binomial)
-summary(rbwo_mod_colabs_dnr)
-autoplot(rbwo_mod_colabs_dnr)
-
-# Ext-Per
-rbwo_mod_extper_dnr <- glm(ext_per ~  pa_percent_z +
-                         developed_lower_base_z + developed_upper_base_z + 
-                         forest_deciduous_base_z + forest_mixed_base_z +
-                         pasture_crop_base_z + 
-                         forest_total_diff_z + developed_total_diff_z +
-                         tmax_38yr_z + prcp_38yr_z,
-                       data = data_extper_dnr_z, family = binomial)
-summary(rbwo_mod_extper_dnr)
-autoplot(rbwo_mod_extper_dnr)
-
-
-
-#### VISUALIZE ####
-
-rbwo_vars_plot <- c(
-  "pa_percent_z",
-  "developed_lower_base_z",
-  "developed_upper_base_z",
-  "forest_mixed_base_z",
-  "forest_deciduous_base_z",
-  "pasture_crop_base_z",
-  "tmax_38yr_z",
-  "prcp_38yr_z",
-  "developed_total_diff_z",
-  "forest_total_diff_z"
-)
-
-
-make_pred_df <- function(var_name, model, data, n = 100) {
-  # baseline at mean for all predictors
-  base_vals <- data %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE))
-  
-  # vary only this variable
-  newdata <- base_vals[rep(1, n), ]
-  newdata[[var_name]] <- seq(
-    min(data[[var_name]], na.rm = TRUE),
-    max(data[[var_name]], na.rm = TRUE),
-    length.out = n
-  )
-  
-  # predicted probability
-  newdata$pred_prob <- predict(model, newdata = newdata, type = "response")
-  newdata$variable <- var_name
-  newdata$x_value <- newdata[[var_name]]
-  
-  newdata %>% dplyr::select(variable, x_value, pred_prob)
+# -------------------------------
+# 3. Extract terms from formula
+# -------------------------------
+ExtractTerms <- function(formula_string) {
+  rhs <- gsub(".*~", "", formula_string)
+  terms <- trimws(unlist(strsplit(rhs, "\\+")))
+  terms <- terms[terms != "(Intercept)" & terms != "1"]
+  terms
 }
 
-
-
-### PLOT ###
-
-# COL-ABS
-facet_colabs_dnr <- c(
-  pa_percent_z = "Protected Area *",
-  developed_lower_base_z = "Open + Lower Development **",
-  developed_upper_base_z = "Moderate + High Development",
-  forest_mixed_base_z = "Mixed Forest .",
-  forest_deciduous_base_z = "Deciduous Forest *",
-  pasture_crop_base_z = "Pasture/Cropland",
-  tmax_38yr_z = "Max Temp ***",
-  prcp_38yr_z = "Precipitation *",
-  developed_total_diff_z = "Difference in Total Developed Land",
-  forest_total_diff_z = "Difference in Total Forest"
-)
-
-rbwo_predplot_colabs_dnr_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
-                                   model = rbwo_mod_colabs_dnr, 
-                                   data = data_colabs_dnr_z)
-
-
-ggplot(rbwo_predplot_colabs_dnr_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_colabs_dnr)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Colonization",
-    title = "Marginal Effects of Covariates on Colonization Probability Across DNR Comparable Blocks"
+# -------------------------------
+# 4. Build reference-aware supported terms table
+# -------------------------------
+GetTermSupport <- function(df, always_keep = c("pa_percent_z", "sr_Diff_z")) {
+  
+  df <- FlagUninformativeModels(df)
+  ref_model <- GetReferenceModel(df)
+  ref_terms <- ExtractTerms(ref_model$formula)
+  
+  term_df <- do.call(
+    rbind,
+    lapply(seq_len(nrow(df)), function(i) {
+      terms <- ExtractTerms(df$formula[i])
+      data.frame(
+        term = terms,
+        model_id = df$model_id[i],
+        K = df$K[i],
+        AICc = df$AICc[i],
+        uninformative_model = df$uninformative_model[i],
+        in_reference = terms %in% ref_terms,
+        stringsAsFactors = FALSE
+      )
+    })
   )
-
-
-# EXT-PER
-facet_extper_dnr <- c(
-  pa_percent_z = "Protected Area",
-  developed_lower_base_z = "Open + Lower Development",
-  developed_upper_base_z = "Moderate + High Development",
-  forest_mixed_base_z = "Mixed Forest",
-  forest_deciduous_base_z = "Deciduous Forest",
-  pasture_crop_base_z = "Pasture/Cropland",
-  tmax_38yr_z = "Max Temp *",
-  prcp_38yr_z = "Precipitation",
-  developed_total_diff_z = "Difference in Total Developed Land",
-  forest_total_diff_z = "Difference in Total Forest *"
-)
-
-rbwo_predplot_extper_dnr_df <- map_dfr(rbwo_vars_plot, make_pred_df, 
-                                   model = rbwo_mod_extper_dnr, 
-                                   data = data_extper_dnr_z)
-
-
-ggplot(rbwo_predplot_extper_dnr_df, aes(x = x_value, y = pred_prob)) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ variable, 
-             scales = "free_x",
-             labeller = labeller(variable = facet_extper_dnr)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Standardized Covariate Value (z-score)",
-    y = "Predicted Probability of Extinction",
-    title = "Marginal Effects of Covariates on Extinction Probability Across DNR Comparable Blocks"
+  
+  # Aggregate counts per term
+  agg <- aggregate(
+    cbind(n_models = model_id, n_uninf = uninformative_model) ~ term,
+    data = term_df,
+    FUN = function(x) if(is.logical(x)) sum(x) else length(x)
   )
-
-
-
-########################
-### MODEL COMPARISON ###
-########################
-
-# Combine all model data
-tab_colabs_rll  <- tidy(rbwo_mod_colabs_rll)  %>% mutate(dataset = "RLL",  model = "Colonization")
-tab_extper_rll  <- tidy(rbwo_mod_extper_rll)  %>% mutate(dataset = "RLL",  model = "Extinction")
-
-tab_colabs_dnr  <- tidy(rbwo_mod_colabs_dnr)  %>% mutate(dataset = "DNR",  model = "Colonization")
-tab_extper_dnr  <- tidy(rbwo_mod_extper_dnr)  %>% mutate(dataset = "DNR",  model = "Extinction")
-
-tab_all <- bind_rows(tab_colabs_rll, tab_extper_rll,
-                     tab_colabs_dnr, tab_extper_dnr)
-
-# Compute odds ratios, confidence intervals
-tab_all <- tab_all %>%
-  mutate(odds_ratio = exp(estimate),
-         OR_low = exp(estimate - 1.96*std.error),
-         OR_high = exp(estimate + 1.96*std.error))
-
-# Comparison table
-compare_table <- tab_all %>%
-  dplyr::select(dataset, model, term, estimate, odds_ratio, p.value) %>%
-  pivot_wider(names_from = dataset,
-              values_from = c(estimate, odds_ratio, p.value),
-              names_sep = "_")
-compare_table
-
-
-# Plot coefficient effect sizes
-ggplot(tab_all, aes(x = term, y = estimate, color = dataset)) +
-  geom_point(position = position_dodge(width = 0.6)) +
-  geom_errorbar(aes(ymin = estimate - 1.96*std.error,
-                    ymax = estimate + 1.96*std.error),
-                width = 0.2,
-                position = position_dodge(width = 0.6)) +
-  coord_flip() +
-  facet_wrap(~model, scales = "free_y") +
-  theme_bw() +
-  labs(title = "Coefficient Comparison: RLL vs DNR",
-       y = "Log-odds estimate")
-
-
-# Model fit: AIC, deviance, McFadden pseudo-R^2
-# Helper function
-extract_metrics <- function(model, model_name) {
-  data.frame(
-    Model = model_name,
-    AIC = AIC(model),
-    Deviance = deviance(model),
-    McFadden_R2 = pscl::pR2(model)[["McFadden"]]
-  )
+  
+  # Include reference info (does this term appear in reference model?)
+  agg$in_reference <- agg$term %in% ref_terms
+  
+  # Classify
+  agg$category <- "Supported"
+  agg$category[!agg$in_reference & agg$n_models == agg$n_uninf] <- "Uninformative"
+  
+  # Always keep PA and SR terms as Supported
+  agg$category[agg$term %in% always_keep] <- "Supported"
+  
+  # Sort for readability: reference terms first
+  agg <- agg[order(!agg$in_reference, -agg$n_models), ]
+  
+  agg
 }
 
-### ---- 1. COLONIZATION: DNR vs RLL ---- ###
-col_results <- bind_rows(
-  extract_metrics(rbwo_mod_colabs_dnr, "Colonization — DNR"),
-  extract_metrics(rbwo_mod_colabs_rll, "Colonization — RLL")
+# --- Apply to top models ---
+Supported_terms_clean <- lapply(Top_models_list, GetTermSupport)
+
+# --- Quick inspection ---
+lapply(Supported_terms_clean, head, 10)
+
+# -------------------------------
+# 5. Build best candidate terms table
+# -------------------------------
+GetBestCandidateTerms <- function(supported_terms_list, keep_terms = c("pa_percent_z", "sr_Diff_z")) {
+  
+  lapply(supported_terms_list, function(term_df) {
+    # Always keep specified terms
+    term_df$category <- as.character(term_df$category)
+    term_df$category[term_df$term %in% keep_terms] <- "Supported"
+    
+    # Keep only supported terms
+    best_terms <- term_df[term_df$category == "Supported", , drop = FALSE]
+    
+    # Flag interactions separately
+    best_terms$interaction <- grepl(":", best_terms$term)
+    
+    # Arrange: interactions last, alphabetically
+    best_terms <- best_terms[order(best_terms$interaction, best_terms$term), ]
+    
+    # Return relevant columns
+    best_terms[, c("term", "n_models", "interaction", "category")]
+  })
+}
+
+# --- Apply ---
+BestCandidateTerms <- GetBestCandidateTerms(Supported_terms_clean)
+
+# --- Inspect ---
+lapply(BestCandidateTerms, head, 10)
+
+
+
+### --- DIAGNOSTICS --- ###
+### Use reference models for each block set, response combo 
+
+mod_ref <- ReferenceModels$RLL_col_abs
+
+
+fit_ref <- glm(
+  formula = mod_ref$formula,
+  data = mod_colabs_rll_z,
+  family = binomial
 )
 
-### ---- 2. EXTINCTION: DNR vs RLL ---- ###
-ext_results <- bind_rows(
-  extract_metrics(rbwo_mod_extper_dnr, "Extinction — DNR"),
-  extract_metrics(rbwo_mod_extper_rll, "Extinction — RLL")
-)
+autoplot(fit_ref, which = 1:6)
 
-### ---- Print results ---- ###
-cat("=== Colonization Model Comparison ===\n")
-print(col_results)
 
-cat("\n\n=== Extinction Model Comparison ===\n")
-print(ext_results)
 
-# Export tidy table 
-# Combine results
-combined_results <- rbind(
-  data.frame(Model = "Colonization — DNR", col_results[1, -1]),
-  data.frame(Model = "Colonization — RLL", col_results[2, -1]),
-  data.frame(Model = "Extinction — DNR", ext_results[1, -1]),
-  data.frame(Model = "Extinction — RLL", ext_results[2, -1])
-)
-
-gt_table <- combined_results %>%
-  gt() %>%
-  tab_header(
-    title = "Model Comparison: Colonization and Extinction",
-    subtitle = "AIC, Deviance, and McFadden Pseudo-R²"
-  ) %>%
-  fmt_number(
-    columns = c(AIC, Deviance, McFadden_R2),
-    decimals = 3
-  ) %>%
-  tab_style(
-    style = cell_text(weight = "bold"),
-    locations = cells_row_groups()
-  ) %>%
-  tab_options(
-    table.font.size = 14,
-    heading.title.font.size = 18,
-    heading.subtitle.font.size = 14
-  )
-
-gt_table

@@ -44,7 +44,7 @@ spp_name <- "Red-bellied Woodpecker"
 ### --- DATAFRAMES --- ###
 
 # Carry-over DataFrames #
-spp_zf_rll <- read.csv("outputs/data/breeders_zf_summary.csv") 
+spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") 
 covars_raw_rll <- read.csv("outputs/data/covars_raw_all.csv")
 
 wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
@@ -56,7 +56,9 @@ blocks_dnr <- blocks_dnr$atlas_block # vector
 
 # SPECIES RICHNESS / EFFORT PROXY (WIP, RE-ORDER)
 covars_raw_rll <- covars_raw_rll %>%
-  mutate(sr_Diff = sr_Atlas2 - sr_Atlas1)
+  mutate(sr_Diff = sr_Atlas2 - sr_Atlas1,
+         grass_pasture_crop_base = grassland_base + pasture_crop_base,
+         grass_pasture_crop_diff = grassland_diff + pasture_crop_diff)
 
 
 # Covariate Sets #
@@ -64,18 +66,20 @@ factor_covars_all <- c("atlas_block", "common_name", "alpha_code", "transition_s
 
 stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
 
-land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
+land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", 
                      "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
                      "developed_lower_base", "developed_upper_base", "developed_total_base", 
                      "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                     "forest_total_base", "pasture_base", "cropland_base", "pasture_crop_base", 
+                     "forest_total_base", "pasture_base", "cropland_base", 
+                     "grassland_base", "pasture_crop_base", "grass_pasture_crop_base",
                      "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
                      
-                     "water_open_diff", "barren_land_diff", "shrub_scrub_diff", "grassland_diff",
+                     "water_open_diff", "barren_land_diff", "shrub_scrub_diff", 
                      "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
                      "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
                      "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
-                     "forest_total_diff", "pasture_diff", "cropland_diff", "pasture_crop_diff", 
+                     "forest_total_diff", "pasture_diff", "cropland_diff", 
+                     "grassland_diff", "pasture_crop_diff", "grass_pasture_crop_diff",
                      "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
 
 land_covars_base <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
@@ -145,11 +149,12 @@ factor_covars_reduced <- c("atlas_block", "transition_state")
 
 stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
 
-land_covars_reduced <- c("shrub_scrub_base", 
-                         "grassland_base", "developed_total_base",
+land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
+                         "grass_pasture_crop_base", "developed_total_base",
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "pasture_crop_base", "wetlands_total_base",
+                         "wetlands_total_base",
                          
+                         "grass_pasture_crop_diff",
                          "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 
 covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
@@ -263,10 +268,12 @@ apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]]
 # Correlation Thinned Covariate Sets
 factor_covars_reduced
 
-land_covars_reduced <- c("shrub_scrub_base", "pasture_crop_base",
-                         "grassland_base","developed_total_base",
+land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
+                         "grass_pasture_crop_base", "developed_total_base",
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_total_base","forest_total_diff")
+                         "wetlands_total_base",
+                         
+                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 
 climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
@@ -296,21 +303,25 @@ vif(vif_model4)
 alias(vif_model4)
 
 # VIF Thinned Covariate Sets
+# Run 2+ x to check incoming and reduced/outgoing covariate set
 # Final set prior to AICc/Model Selection process
 
 factor_covars_reduced <- c("atlas_block")
 
-land_covars_reduced <- c("shrub_scrub_base", "grassland_base","developed_total_base",
-                         "forest_deciduous_base", "forest_evergreen_base", 
-                         "forest_mixed_base", "wetlands_total_base","forest_total_diff")
+land_covars_reduced <- c("shrub_scrub_base", "grass_pasture_crop_base", 
+                         "developed_total_base", "forest_mixed_base",
+                         "wetlands_total_base",
+                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
 
-climate_covars_reduced # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
+climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 climate_covars_reduced_z <- paste0(climate_covars_reduced, "_z")
 
 stable_covars_reduced # "sr_Diff", "pa_percent"
 stable_covars_reduced_z <- paste0(stable_covars_reduced, "_z")
 
+covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
+covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 #######################
@@ -349,11 +360,12 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 # Covariates #
 factor_covars_reduced # atlas_block
 
-land_covars_reduced_z # shrub_scrub_base, grassland_base, developed_total_base,
-# forest_deciduous_base, forest_evergreen_base, 
-# forest_mixed_base, wetlands_total_base, forest_total_diff
+land_covars_reduced_z # "shrub_scrub_base", "grass_pasture_crop_base", 
+# "developed_total_base", "forest_mixed_base",
+# "wetlands_total_base",
+# "developed_total_diff", "forest_total_diff", "wetlands_total_diff"
 
-climate_covars_reduced_z # tmax_38yr, prcp_38yr, tmax_diff, tmin_diff, prcp_diff
+climate_covars_reduced_z # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
 
 stable_covars_reduced_z # sr_Diff, pa_percent
 
@@ -575,8 +587,8 @@ formatted_tables <- BuildTables(
 
 # RLL, ColAbs
 formatted_tables$RLL_col_abs_land
-# >= 0.8: mixed_forest_base_z, wetlands_total_base_z, developed_total_base_z
-# ~= 0.5-0.8: forest_evergreen_base_z, shrub_scrub_base_z, forest_deciduous_base_z
+# >= 0.8: forest_mixed_base_z, developed_total_base_z, grass_pasture_crop_base_z, wetlands_total_base_z
+# ~= 0.5-0.8: shrub_scrub_base_z, forest_total_diff_z, wetlands_total_diff_z
 formatted_tables$RLL_col_abs_climate
 # >= 0.8: tmax_38yr_z, prcp_38yr_z, prcp_diff_z
 # ~= 0.5-0.8: none
@@ -587,7 +599,7 @@ formatted_tables$RLL_col_abs_stable
 # RLL, ExtPer
 formatted_tables$RLL_ext_per_land
 # >= 0.8: none
-# ~= 0.5-0.8: forest_total_diff_z, forest_mixed_base_z, forest_evergreen_base_z, wetlands_total_base_z
+# ~= 0.5-0.8: forest_total_diff_z, grass_pasture_crop_base_z
 formatted_tables$RLL_ext_per_climate
 # >= 0.8: none
 # ~= 0.5-0.8: tmax_38yr_z, prcp_diff_z, tmin_diff_z
@@ -599,7 +611,7 @@ formatted_tables$RLL_ext_per_stable
 # DNR, ColAbs
 formatted_tables$DNR_col_abs_land
 # >= 0.8: forest_mixed_base_z, developed_total_base_z, wetlands_total_base_z
-# ~= 0.5-0.8: grassland_base_z, forest_deciduous_base_z
+# ~= 0.5-0.8: none
 formatted_tables$DNR_col_abs_climate
 # >= 0.8: tmax_38yr_z, prcp_38yr_z
 # ~= 0.5-0.8: none
@@ -609,65 +621,91 @@ formatted_tables$DNR_col_abs_stable
 
 # DNR, ExtPer
 formatted_tables$DNR_ext_per_land
-# >= 0.8: forest_mixed_base_z, developed_total_base_Z, wetlands_total_base_z, 
-# ~= 0.5-0.8: grassland_base_z, forest_deciduous_base_z
+# >= 0.8: none
+# ~= 0.5-0.8: forest_total_diff_z, developed_total_base_z
 formatted_tables$DNR_ext_per_climate
-# >= 0.8: tmax_38yr_z, prcp_38yr_z
-# ~= 0.5-0.8: none
+# >= 0.8: tmax_38yr_z
+# ~= 0.5-0.8: ptmax_diff_z
 formatted_tables$DNR_ext_per_stable
-# >= 0.8: pa_percent_z, sr_Diff_z
-# ~= 0.5-0.8: n/a
+# >= 0.8: pa_percent_z
+# ~= 0.5-0.8: sr_Diff_z
+
+################################ WIP FOR NOW #################################
+### Don't use as another importance-based reduction step for now--think I'm oversimplifying model
+# and creating too perfect of a fit (based on competative models in global ranking
+# and ID of uninformative parameters)
+# Ie. Just bring thru same covariates that went in
 
 
 RLL_col_abs_covs <- c(
-  "developed_total_base_z",
-  "forest_deciduous_base_z",
-  "forest_evergreen_base_z",
-  "forest_mixed_base_z",
-  "forest_total_diff_z",
-  "grassland_base_z",
   "shrub_scrub_base_z",
-  "wetlands_total_base_z",
+  "grass_pasture_crop_base_z",
+  "developed_total_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
+  "forest_total_diff_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
+  "tmax_diff_z",
+  "tmin_diff_z",
   "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
 
 RLL_ext_per_covs <- c(
-  "forest_mixed_base_z",
-  "forest_evergreen_base_z",
+  "shrub_scrub_base_z",
+  "grass_pasture_crop_base_z",
+  "developed_total_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
   "forest_total_diff_z",
-  "wetlands_total_base_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
-  "prcp_diff_z",
+  "prcp_38yr_z",
+  "tmax_diff_z",
   "tmin_diff_z",
+  "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
 
 
 DNR_col_abs_covs <- c(
+  "shrub_scrub_base_z",
+  "grass_pasture_crop_base_z",
   "developed_total_base_z",
-  "forest_mixed_base_z",
-  "wetlands_total_base_z",
-  "grassland_base_z",
-  "forest_deciduous_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
+  "forest_total_diff_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
+  "tmax_diff_z",
+  "tmin_diff_z",
+  "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
 
 DNR_ext_per_covs <- c(
-  "forest_mixed_base_z",
+  "shrub_scrub_base_z",
+  "grass_pasture_crop_base_z",
   "developed_total_base_z",
-  "wetlands_total_base_z",
-  "grassland_base_z",
-  "forest_deciduous_base_z",
+  "forest_mixed_base_z", 
+  "wetlands_total_base_z", 
+  "developed_total_base_z", 
+  "forest_total_diff_z",
+  "wetlands_total_diff_z",
   "tmax_38yr_z",
   "prcp_38yr_z",
+  "tmax_diff_z",
+  "tmin_diff_z",
+  "prcp_diff_z",
   "pa_percent_z",
   "sr_Diff_z"
 )
@@ -808,7 +846,8 @@ pa_int_covs <- c(
   "forest_total_diff_z",
   "wetlands_total_base_z",
   "forest_mixed_base_z",
-  "tmax_38yr_z"
+  "tmax_38yr_z",
+  "tmin_diff_z"
   #"sr_Diff_z"
 )
 
@@ -897,6 +936,8 @@ DredgeToLong <- function(dredge_df, model_name, response_lhs) {
     model_name = model_name,
     model_id   = paste0(model_name, "_m", seq_len(nrow(dredge_df))),
     formula    = full_formulas,
+    logLik.    = as.numeric(dredge_df$logLik),
+    K          = dredge_df$df,
     AICc       = dredge_df$AICc,
     delta      = dredge_df$delta,
     weight     = dredge_df$weight,

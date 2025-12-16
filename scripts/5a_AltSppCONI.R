@@ -28,6 +28,7 @@ library(lme4)
 library(MuMIn)
 library(pscl)
 library(AICcmodavg)
+library(arm)
 
 # Visualization
 library(ggplot2)
@@ -245,14 +246,14 @@ M3 <- cor(mod_colabs_dnr_z[, covar_cols_colabs_dnr], use = "pairwise.complete.ob
 M4 <- cor(mod_extper_dnr_z[, covar_cols_extper_dnr], use = "pairwise.complete.obs")
 
 
-corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6) # visualize correlation plots
 corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
 corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
 corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
 
-high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE)
+high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE) # list out high correlation pairs
 apply(high_corr1, 1, function(i) cat(rownames(M1)[i[1]], "-", colnames(M1)[i[2]], "r =", M1[i[1],i[2]], "\n"))
 
 high_corr2 <- which(abs(M2) > 0.7 & abs(M2) < 1, arr.ind = TRUE)
@@ -266,6 +267,7 @@ apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]]
 
 
 # Correlation Thinned Covariate Sets
+### Removed one covar from highly correlated pairs when |r| > 0.7
 factor_covars_reduced
 
 land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
@@ -285,7 +287,6 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 # VIF
-
 vif_model1 <- glm(col_abs ~ ., data = mod_colabs_rll_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model1)
 alias(vif_model1)
@@ -304,6 +305,8 @@ alias(vif_model4)
 
 # VIF Thinned Covariate Sets
 # Run 2+ x to check incoming and reduced/outgoing covariate set
+### Keep relatively loose, keep when VIF < 10 to not thin data too much; ran previously
+# w/ VIF < 7 and had problems in model ranking w/ an excessive # of competatie mods
 # Final set prior to AICc/Model Selection process
 
 factor_covars_reduced <- c("atlas_block")
@@ -404,15 +407,11 @@ GetTopCovars <- function(dredge_obj, delta_cut = 2, imp_cut = 0.5) {
     colnames(top_models),
     c("(Int)", "df", "logLik", "AICc", "delta", "weight")
   )
+  if(length(covar_cols) == 0) return(character(0)) # fail safe
   
-  # Check if there are covariates at all
-  if(length(covar_cols) == 0) return(character(0))
-  
-  # Try model-averaged importance safely
+  # Model-averaged importance
   imp <- tryCatch(importance(dredge_obj), error = function(e) NULL)
-  
-  # If importance failed, just return covariates present in top models
-  if(is.null(imp)) {
+  if(is.null(imp)) { # fail safe
     top_covs <- covar_cols[apply(top_models[, covar_cols, drop = FALSE], 2, function(x) any(!is.na(x)))]
     return(top_covs)
   }
@@ -432,11 +431,11 @@ options(na.action = "na.fail")
 results_partitioned <- list()
 top_covars_partitioned <- list()
 
-for(ds in names(mod_datasets)) {
+for(ds in names(mod_datasets)) { # iterate
   
   d <- mod_datasets[[ds]]$df
   y <- mod_datasets[[ds]]$resp
-  message("=== Processing dataset: ", ds, " (response: ", y, ") ===")
+  message("=== Processing dataset: ", ds, " (response: ", y, ") ===") # label outputs as they process
   
   results_partitioned[[ds]] <- list()
   top_covars_partitioned[[ds]] <- list()
@@ -449,11 +448,11 @@ for(ds in names(mod_datasets)) {
                    climate = climate_covars_reduced_z,
                    stable  = stable_covars_reduced_z)
     
-    # Build formula & fit global model
+    # Build formula, fit global model
     f <- BuildFormula(y, covs)
     m <- glm(f, data = d, family = "binomial")
     
-    # Dredge
+    # Dredge top models from all possible candidates 
     dredged <- dredge(m, rank = "AICc", trace = FALSE)
     
     # Save dredged results
@@ -471,7 +470,7 @@ for(ds in names(mod_datasets)) {
 
 SummarizePartitionedResults <- function(top_covars_list, dredge_results_list, label = "") {
   
-  cat("\n==============================\n")
+  cat("\n==============================\n") # create formatted space around results for ease of reading
   cat("     SUMMARY FOR:", label, "\n")
   cat("==============================\n\n")
   
@@ -517,7 +516,6 @@ SummarizePartitionedResults(
 
 # Visualize
 # Helper: build formatted importance summary tables
-
 BuildTables <- function(top_covars_list, dredge_results_list) {
   
   tables_out <- list()
@@ -631,7 +629,8 @@ formatted_tables$DNR_ext_per_stable
 # ~= 0.5-0.8: sr_Diff_z
 
 ################################ WIP FOR NOW #################################
-### Don't use as another importance-based reduction step for now--think I'm oversimplifying model
+### RESULTS FROM THIS PARTITIONED COVAR STEP
+# Don't use as another importance-based reduction step for now--think I'm oversimplifying model
 # and creating too perfect of a fit (based on competative models in global ranking
 # and ID of uninformative parameters)
 # Ie. Just bring thru same covariates that went in
@@ -847,8 +846,8 @@ pa_int_covs <- c(
   "wetlands_total_base_z",
   "forest_mixed_base_z",
   "tmax_38yr_z",
-  "tmin_diff_z"
-  #"sr_Diff_z"
+  "tmin_diff_z",
+  "sr_Diff_z"
 )
 
 # Helper: build interaction terms (w/ PA)
@@ -1005,29 +1004,221 @@ lapply(Top_models_list, function(df) {
 
 
 
+# Identify uninformative parameters 
+### Compare K sets among all models w/ delta < 2 
+# -------------------------------
+# Identify uninformative parameters 
+# -------------------------------
+### Compare K sets among all models with delta < 2 
 
-# Visualize
-### Tidier AICc tables
-PrettyModels <- function(df) {
-  if (nrow(df) == 0) return(df)
-  
-  df |>
-    dplyr::mutate(
-      AICc  = round(AICc, 3),
-      delta = round(delta, 3),
-      weight = round(weight, 4)
-    ) |>
-    dplyr::rename(
-      Model      = model_id,
-      Set        = model_name,
-      Formula    = formula,
-      ΔAICc      = delta,
-      Weight     = weight
-    ) |>
-    dplyr::select(Set, Model, Formula, AICc, ΔAICc, Weight)
+# --- 1. Helper: Get Reference Model (lowest AICc, smallest K as tie-breaker) ---
+GetReferenceModel <- function(df) {
+  df[order(df$AICc, df$K), ][1, ]
 }
 
-Pretty_list <- lapply(Top_models_list, PrettyModels)
-Pretty_list
+# --- Apply to top models ---
+ReferenceModels <- lapply(Top_models_list, GetReferenceModel)
+ReferenceModels  # inspect
+
+# -------------------------------
+# 2. Flag uninformative models
+# -------------------------------
+FlagUninformativeModels <- function(df, aicc_tol = 2) {
+  # Reference model: lowest AICc, tie-break with smallest K
+  ref <- GetReferenceModel(df)
+  
+  df$extra_K <- df$K - ref$K
+  df$aicc_gain <- ref$AICc - df$AICc
+  
+  df$uninformative_model <- with(
+    df,
+    extra_K > 0 & aicc_gain < aicc_tol
+  )
+  
+  df
+}
+
+# -------------------------------
+# 3. Extract terms from formula
+# -------------------------------
+ExtractTerms <- function(formula_string) {
+  rhs <- gsub(".*~", "", formula_string)
+  terms <- trimws(unlist(strsplit(rhs, "\\+")))
+  terms <- terms[terms != "(Intercept)" & terms != "1"]
+  terms
+}
+
+# -------------------------------
+# 4. Build reference-aware supported terms table
+# -------------------------------
+GetTermSupport <- function(df, always_keep = c("pa_percent_z", "sr_Diff_z")) {
+  
+  df <- FlagUninformativeModels(df)
+  ref_model <- GetReferenceModel(df)
+  ref_terms <- ExtractTerms(ref_model$formula)
+  
+  term_df <- do.call(
+    rbind,
+    lapply(seq_len(nrow(df)), function(i) {
+      terms <- ExtractTerms(df$formula[i])
+      data.frame(
+        term = terms,
+        model_id = df$model_id[i],
+        K = df$K[i],
+        AICc = df$AICc[i],
+        uninformative_model = df$uninformative_model[i],
+        in_reference = terms %in% ref_terms,
+        stringsAsFactors = FALSE
+      )
+    })
+  )
+  
+  # Aggregate counts per term
+  agg <- aggregate(
+    cbind(n_models = model_id, n_uninf = uninformative_model) ~ term,
+    data = term_df,
+    FUN = function(x) if(is.logical(x)) sum(x) else length(x)
+  )
+  
+  # Include reference info (does this term appear in reference model?)
+  agg$in_reference <- agg$term %in% ref_terms
+  
+  # Classify
+  agg$category <- "Supported"
+  agg$category[!agg$in_reference & agg$n_models == agg$n_uninf] <- "Uninformative"
+  
+  # Always keep PA and SR terms as Supported
+  agg$category[agg$term %in% always_keep] <- "Supported"
+  
+  # Sort for readability: reference terms first
+  agg <- agg[order(!agg$in_reference, -agg$n_models), ]
+  
+  agg
+}
+
+# --- Apply to top models ---
+Supported_terms_clean <- lapply(Top_models_list, GetTermSupport)
+
+# --- Quick inspection ---
+lapply(Supported_terms_clean, head, 10)
+
+# -------------------------------
+# 5. Build best candidate terms table
+# -------------------------------
+GetBestCandidateTerms <- function(supported_terms_list, keep_terms = c("pa_percent_z", "sr_Diff_z")) {
+  
+  lapply(supported_terms_list, function(term_df) {
+    # Always keep specified terms
+    term_df$category <- as.character(term_df$category)
+    term_df$category[term_df$term %in% keep_terms] <- "Supported"
+    
+    # Keep only supported terms
+    best_terms <- term_df[term_df$category == "Supported", , drop = FALSE]
+    
+    # Flag interactions separately
+    best_terms$interaction <- grepl(":", best_terms$term)
+    
+    # Arrange: interactions last, alphabetically
+    best_terms <- best_terms[order(best_terms$interaction, best_terms$term), ]
+    
+    # Return relevant columns
+    best_terms[, c("term", "n_models", "interaction", "category")]
+  })
+}
+
+# --- Apply ---
+BestCandidateTerms <- GetBestCandidateTerms(Supported_terms_clean)
+
+# --- Inspect ---
+lapply(BestCandidateTerms, head, 10)
+
+
+
+### --- DIAGNOSTICS --- ###
+### Use reference models for each block set, response combo 
+# Can't use ggfortify::autoplot for non-Gaussian; insetad, arm::binnedplot() for residual plots,
+# performance::check_outliers 
+
+# RLL, ColABs
+rll_colabs_ref <- glm(col_abs ~
+                        pa_percent_z + sr_Diff_z
+                      + forest_mixed_base_z + forest_total_diff_z + shrub_scrub_base_z 
+                      + tmax_38yr_z + tmax_diff_z + wetlands_total_base_z + wetlands_total_diff_z 
+                      + forest_total_diff_z:pa_percent_z + pa_percent_z:sr_Diff_z + pa_percent_z:tmax_38yr_z 
+                      + pa_percent_z:wetlands_total_base_z,
+                      data = mod_colabs_rll_z,
+                      family = "binomial"
+)
+
+summary(rll_colabs_ref)
+binnedplot(
+  x = fitted(rll_colabs_ref),
+  y = residuals(rll_colabs_ref, type = "response")
+)
+check_outliers(rll_colabs_ref)
+
+
+#RLL, ExtPer
+rll_extper_ref <- glm(ext_per ~
+                        pa_percent_z + sr_Diff_z
+                      + forest_total_diff_z + grass_pasture_crop_base_z + tmax_38yr_z + tmin_diff_z,
+                      data = mod_extper_rll_z,
+                      family = "binomial"
+)
+
+summary(rll_extper_ref)
+binnedplot(
+  x = fitted(rll_extper_ref),
+  y = residuals(rll_extper_ref, type = "response")
+)
+check_outliers(rll_extper_ref)
+
+
+#DNR, ColAbs
+dnr_colabs_ref <- glm(col_abs ~
+                        pa_percent_z + sr_Diff_z
+                      + developed_total_base_z + forest_mixed_base_z + forest_total_diff_z 
+                      + grass_pasture_crop_base_z + prcp_38yr_z + shrub_scrub_base_z 
+                      + tmax_38yr_z + wetlands_total_base_z + forest_total_diff_z:pa_percent_z,
+                      data = mod_colabs_dnr_z,
+                      family = "binomial"                 
+)
+
+summary(dnr_colabs_ref)
+binnedplot(
+  x = fitted(dnr_colabs_ref),
+  y = residuals(dnr_colabs_ref, type = "response")
+)
+check_outliers(dnr_colabs_ref)
+
+
+# DNR, ExtPer
+dnr_extper_ref <- glm(ext_per ~
+                        pa_percent_z + sr_Diff_z
+                      + developed_total_base_z + forest_total_diff_z + tmax_38yr_z,
+                      data = mod_extper_dnr_z,
+                      family = "binomial"                      
+)
+
+summary(dnr_extper_ref)
+binnedplot(
+  x = fitted(dnr_extper_ref),
+  y = residuals(dnr_extper_ref, type = "response")
+)
+check_outliers(dnr_extper_ref)
+
+
+
+mod_ref <- ReferenceModels$RLL_col_abs
+
+
+fit_ref <- glm(
+  formula = mod_ref$formula,
+  data = mod_colabs_rll_z,
+  family = binomial
+)
+
+autoplot(fit_ref, which = 1:6)
+
 
 

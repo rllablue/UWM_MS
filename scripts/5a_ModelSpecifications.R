@@ -28,6 +28,7 @@ library(lme4)
 library(MuMIn)
 library(pscl)
 library(AICcmodavg)
+library(arm)
 
 # Visualization
 library(ggplot2)
@@ -54,7 +55,7 @@ blocks_dnr <- read_xlsx("data/summaries/CompBlocks_DNR2023.xlsx") # df
 blocks_dnr <- blocks_dnr$atlas_block # vector
 
 
-# SPECIES RICHNESS / EFFORT PROXY (WIP, RE-ORDER)
+# SPECIES RICHNESS / EFFORT PROXY 
 covars_raw_rll <- covars_raw_rll %>%
   mutate(sr_Diff = sr_Atlas2 - sr_Atlas1,
          grass_pasture_crop_base = grassland_base + pasture_crop_base,
@@ -245,14 +246,14 @@ M3 <- cor(mod_colabs_dnr_z[, covar_cols_colabs_dnr], use = "pairwise.complete.ob
 M4 <- cor(mod_extper_dnr_z[, covar_cols_extper_dnr], use = "pairwise.complete.obs")
 
 
-corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6) # visualize correlation plots
 corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
 corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
 corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
 
-high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE)
+high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE) # list out high correlation pairs
 apply(high_corr1, 1, function(i) cat(rownames(M1)[i[1]], "-", colnames(M1)[i[2]], "r =", M1[i[1],i[2]], "\n"))
 
 high_corr2 <- which(abs(M2) > 0.7 & abs(M2) < 1, arr.ind = TRUE)
@@ -266,6 +267,7 @@ apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]]
 
 
 # Correlation Thinned Covariate Sets
+### Removed one covar from highly correlated pairs when |r| > 0.7
 factor_covars_reduced
 
 land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
@@ -285,7 +287,6 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 # VIF
-
 vif_model1 <- glm(col_abs ~ ., data = mod_colabs_rll_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model1)
 alias(vif_model1)
@@ -304,6 +305,8 @@ alias(vif_model4)
 
 # VIF Thinned Covariate Sets
 # Run 2+ x to check incoming and reduced/outgoing covariate set
+### Keep relatively loose, keep when VIF < 10 to not thin data too much; ran previously
+# w/ VIF < 7 and had problems in model ranking w/ an excessive # of competatie mods
 # Final set prior to AICc/Model Selection process
 
 factor_covars_reduced <- c("atlas_block")
@@ -330,10 +333,8 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 ### --- PROCESS --- ###
 
-### AICc from pre-screened, correlation-controlled, biologically plausible 
+### AICc of pre-screened, correlation-controlled, biologically plausible 
 # candidates with both additive and interaction terms.    
-### Fixed Effect: atlas_block (cannot be random b/c each block only
-# has one row of data/no replication, ie. effect is not estimatable).
 
 # MuMIn::dredge() automates candidate set construction of all main effect covar combos
 # but user must manually define, limit interaction terms. User should also further
@@ -341,301 +342,14 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 # converge and/or overload processor. 
 
 ### Two Steps:
-# 1) "Partitioned" Main-Effects Models (MuMIn::dredge())
-# A) Land-only Model
-# B) Climate-only Model
-# C) Stable Numeric-only Model
+# 1) "Manual" Interaction Terms
+# Generate plausible 2-way interactions w/ protected area
 
-# 2) "Manual" Interaction Models
-# Generate plausible 2-way interactions
-# Fit candidates, compare with AICc
+# 2) Global Model AICc Selection
+# Discern, examine top candidates
 
-
-### --- STEP 1: Partition Covariate Models --- ###
-
-out_dir <- "outputs/model_selection"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-
-# Covariates #
-factor_covars_reduced # atlas_block
-
-land_covars_reduced_z # "shrub_scrub_base", "grass_pasture_crop_base", 
-                      # "developed_total_base", "forest_mixed_base",
-                      # "wetlands_total_base",
-                      # "developed_total_diff", "forest_total_diff", "wetlands_total_diff"
-
-climate_covars_reduced_z # "tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff"
-
-stable_covars_reduced_z # sr_Diff, pa_percent
-
-
-# Datasets #
-# Objects to iterate over
-mod_datasets <- list(
-  colabs_rll = list(df = mod_colabs_rll_z, resp = "col_abs"),
-  extper_rll = list(df = mod_extper_rll_z, resp = "ext_per"),
-  colabs_dnr = list(df = mod_colabs_dnr_z, resp = "col_abs"),
-  extper_dnr = list(df = mod_extper_dnr_z, resp = "ext_per")
-)
-
-
-# Functions
-# Helper: build model formula
-
-BuildFormula <- function(response, covariates) {
-  f <- as.formula(
-    paste0(response, " ~ ", paste(covariates, collapse = " + "))
-  )
-  environment(f) <- environment()  # safe environment
-  return(f)
-}
-
-
-# Helper: extract top covariates, importance metric
-GetTopCovars <- function(dredge_obj, delta_cut = 2, imp_cut = 0.5) {
-  
-  # Top models within delta AICc
-  top_models <- subset(dredge_obj, delta <= delta_cut)
-  if (nrow(top_models) == 0) return(character(0))
-  
-  # Covariate columns (exclude metadata)
-  covar_cols <- setdiff(
-    colnames(top_models),
-    c("(Int)", "df", "logLik", "AICc", "delta", "weight")
-  )
-  
-  # Check if there are covariates at all
-  if(length(covar_cols) == 0) return(character(0))
-  
-  # Try model-averaged importance safely
-  imp <- tryCatch(importance(dredge_obj), error = function(e) NULL)
-  
-  # If importance failed, just return covariates present in top models
-  if(is.null(imp)) {
-    top_covs <- covar_cols[apply(top_models[, covar_cols, drop = FALSE], 2, function(x) any(!is.na(x)))]
-    return(top_covs)
-  }
-  
-  # Covariates appearing in at least one top model
-  present_in_top <- covar_cols[apply(top_models[, covar_cols, drop = FALSE], 2, function(x) any(!is.na(x)))]
-  
-  # Filter by importance threshold
-  top_covs <- present_in_top[present_in_top %in% names(imp[imp >= imp_cut])]
-  
-  return(top_covs)
-}
-
-
-# Apply
-options(na.action = "na.fail")
-results_partitioned <- list()
-top_covars_partitioned <- list()
-
-for(ds in names(mod_datasets)) {
-  
-  d <- mod_datasets[[ds]]$df
-  y <- mod_datasets[[ds]]$resp
-  message("=== Processing dataset: ", ds, " (response: ", y, ") ===")
-  
-  results_partitioned[[ds]] <- list()
-  top_covars_partitioned[[ds]] <- list()
-  
-  for(partition_name in c("land", "climate", "stable")) {
-    
-    # Choose covariates for this partition
-    covs <- switch(partition_name,
-                   land    = land_covars_reduced_z,
-                   climate = climate_covars_reduced_z,
-                   stable  = stable_covars_reduced_z)
-    
-    # Build formula & fit global model
-    f <- BuildFormula(y, covs)
-    m <- glm(f, data = d, family = "binomial")
-    
-    # Dredge
-    dredged <- dredge(m, rank = "AICc", trace = FALSE)
-    
-    # Save dredged results
-    results_partitioned[[ds]][[partition_name]] <- dredged
-    
-    # Extract top covariates with importance
-    top_covars_partitioned[[ds]][[partition_name]] <- GetTopCovars(dredged, delta_cut = 2, imp_cut = 0.5)
-    
-  }
-}
-
-
-# Assess Top Covariates
-# Helper: summarize results across both responses, block sets
-
-SummarizePartitionedResults <- function(top_covars_list, dredge_results_list, label = "") {
-  
-  cat("\n==============================\n")
-  cat("     SUMMARY FOR:", label, "\n")
-  cat("==============================\n\n")
-  
-  for (ds in names(top_covars_list)) {
-    
-    cat("\n--------------------------------------\n")
-    cat(" Dataset:", ds, "\n")
-    cat("--------------------------------------\n")
-    
-    for (partition in names(top_covars_list[[ds]])) {
-      
-      cat("\n  >> Partition:", toupper(partition), "\n")
-      
-      # Print top covariates
-      cat("     Top covariates:\n")
-      print(top_covars_list[[ds]][[partition]])
-      
-      # Print first rows of dredge table
-      cat("\n     Top dredge models (head):\n")
-      suppressMessages(print(head(dredge_results_list[[ds]][[partition]])))
-      
-      cat("\n")
-    }
-  }
-}
-
-
-# Apply
-# DNR
-SummarizePartitionedResults(
-  top_covars_list = top_covars_partitioned[c("colabs_dnr", "extper_dnr")],
-  dredge_results_list = results_partitioned[c("colabs_dnr", "extper_dnr")],
-  label = "DNR BLOCKS"
-)
-
-# RLL
-SummarizePartitionedResults(
-  top_covars_list = top_covars_partitioned[c("colabs_rll", "extper_rll")],
-  dredge_results_list = results_partitioned[c("colabs_rll", "extper_rll")],
-  label = "RLL BLOCKS"
-)
-
-
-# Visualize
-# Helper: build formatted importance summary tables
-
-BuildTables <- function(top_covars_list, dredge_results_list) {
-  
-  tables_out <- list()
-  
-  for (ds in names(top_covars_list)) {
-    
-    dredge_parts <- dredge_results_list[[ds]]
-    top_parts    <- top_covars_list[[ds]]
-    
-    block_set <- ifelse(grepl("dnr", ds), "DNR", "RLL")
-    response  <- ifelse(grepl("colabs", ds), "col_abs", "ext_per")
-    
-    for (partition in names(top_parts)) {
-      
-      dredge_obj <- dredge_parts[[partition]]
-      top_covs   <- top_parts[[partition]]
-      
-      # Identify covariate columns
-      covar_cols <- setdiff(
-        colnames(dredge_obj),
-        c("(Int)", "df", "logLik", "AICc", "delta", "weight")
-      )
-      
-      # ---- SAFE importance: sum of weights across models where covariate is present ----
-      imp <- sapply(covar_cols, function(v) {
-        present <- !is.na(dredge_obj[[v]])
-        sum(dredge_obj$weight[present])
-      })
-      
-      df <- data.frame(
-        block_set = block_set,
-        response  = response,
-        partition = partition,
-        covariate = names(imp),
-        importance = as.numeric(imp),
-        in_top_models = names(imp) %in% top_covs,
-        rank = rank(-imp, ties.method = "first"),
-        stringsAsFactors = FALSE
-      )
-      
-      tbl_name <- paste(block_set, response, partition, sep = "_")
-      tables_out[[tbl_name]] <- df
-    }
-  }
-  
-  return(tables_out)
-}
-
-
-# Apply
-### Model-Averaged Variable Importance Score: sum of AIcc weights of all (dredged)
-# models wherein a given covariate appears ("relative importance," Burnham & Anderson 2002).
-# If all the highest-weight models include X, then importance ~= 1
-# If some mid-weight models include X, then importance ~= 0.3-0.7
-# If only low-weight models include X, then importance ~= 0.05-0.2
-# If no top models include X, then importance ~= 0
-
-formatted_tables <- BuildTables(
-  top_covars_list = top_covars_partitioned,
-  dredge_results_list = results_partitioned
-)
-
-# AICc, Importance-thinned Covariate Sets
-### Burnham & Anderson 2002:
-# Importance ≥ 0.80	--> Strong evidence the covariate belongs in the final model(s).
-# Importance ~= 0.50–0.80	--> Moderate evidence; include if biologically meaningful.
-
-# RLL, ColAbs
-formatted_tables$RLL_col_abs_land
-  # >= 0.8: forest_mixed_base_z, developed_total_base_z, grass_pasture_crop_base_z, wetlands_total_base_z
-  # ~= 0.5-0.8: shrub_scrub_base_z, forest_total_diff_z, wetlands_total_diff_z
-formatted_tables$RLL_col_abs_climate
-  # >= 0.8: tmax_38yr_z, prcp_38yr_z, prcp_diff_z
-  # ~= 0.5-0.8: none
-formatted_tables$RLL_col_abs_stable
-  # >= 0.8: pa_percent_z, sr_Diff_z
-  # ~= 0.5-0.8: n/a
-
-# RLL, ExtPer
-formatted_tables$RLL_ext_per_land
-  # >= 0.8: none
-  # ~= 0.5-0.8: forest_total_diff_z, grass_pasture_crop_base_z
-formatted_tables$RLL_ext_per_climate
-  # >= 0.8: none
-  # ~= 0.5-0.8: tmax_38yr_z, prcp_diff_z, tmin_diff_z
-formatted_tables$RLL_ext_per_stable 
-  # >= 0.8: sr_Diff_z
-  # ~= 0.5-0.8: pa_percent_z 
-
-
-# DNR, ColAbs
-formatted_tables$DNR_col_abs_land
-  # >= 0.8: forest_mixed_base_z, developed_total_base_z, wetlands_total_base_z
-  # ~= 0.5-0.8: none
-formatted_tables$DNR_col_abs_climate
-  # >= 0.8: tmax_38yr_z, prcp_38yr_z
-  # ~= 0.5-0.8: none
-formatted_tables$DNR_col_abs_stable
-  # >= 0.8: pa_percent_z, sr_Diff_z
-  # ~= 0.5-0.8: n/a
-
-# DNR, ExtPer
-formatted_tables$DNR_ext_per_land
-  # >= 0.8: none
-  # ~= 0.5-0.8: forest_total_diff_z, developed_total_base_z
-formatted_tables$DNR_ext_per_climate
-  # >= 0.8: tmax_38yr_z
-  # ~= 0.5-0.8: ptmax_diff_z
-formatted_tables$DNR_ext_per_stable
-  # >= 0.8: pa_percent_z
-  # ~= 0.5-0.8: sr_Diff_z
-
-################################ WIP FOR NOW #################################
-### Don't use as another importance-based reduction step for now--think I'm oversimplifying model
-# and creating too perfect of a fit (based on competative models in global ranking
-# and ID of uninformative parameters)
-# Ie. Just bring thru same covariates that went in
-
+# Assign Covariates to each block set x response 
+# Same for all for this species
 
 RLL_col_abs_covs <- c(
   "shrub_scrub_base_z",
@@ -711,118 +425,6 @@ DNR_ext_per_covs <- c(
 )
 
 
-# Visualize
-
-# Data formatting
-all_imp <- dplyr::bind_rows(formatted_tables, .id = "table_name") # combine into single long table
-
-all_imp <- all_imp %>% # cleaner id for x-axis
-  dplyr::mutate(
-    block_response_part = paste(block_set, response, partition, sep = "_"),
-    covariate = factor(covariate)
-  )
-
-covs <- unique(all_imp$covariate) # covariate object
-
-separator_df <- data.frame( # aesthetic: white space separating block sets
-  block_response_part = "separator",
-  covariate = covs,
-  importance = NA,
-  block_set = NA,
-  response = NA,
-  partition = NA
-)
-
-all_imp_sep <- dplyr::bind_rows(all_imp, separator_df) # aesthetic: put white space in table
-
-all_imp_sep$block_response_part <- factor( # order factor levels
-  all_imp_sep$block_response_part,
-  levels = c(
-    "RLL_col_abs_land",
-    "RLL_col_abs_climate",
-    "RLL_col_abs_stable",
-    "RLL_ext_per_land",
-    "RLL_ext_per_climate",
-    "RLL_ext_per_stable",
-    
-    "separator",
-    
-    "DNR_col_abs_land",
-    "DNR_col_abs_climate",
-    "DNR_col_abs_stable",
-    "DNR_ext_per_land",
-    "DNR_ext_per_climate",
-    "DNR_ext_per_stable"
-  )
-)
-
-x_labels_pretty <- c( # aesthetic: asix labels
-
-  "RLL_col_abs_land"    = "RLL: Colonization (Land)",
-  "RLL_col_abs_climate" = "RLL: Colonization (Climate)",
-  "RLL_col_abs_stable"  = "RLL: Colonization (Stable)",
-  "RLL_ext_per_land"    = "RLL: Extinction (Land)",
-  "RLL_ext_per_climate" = "RLL: Extinction (Climate)",
-  "RLL_ext_per_stable"  = "RLL: Extinction (Stable)",
-  
-  "separator" = "",
-  
-  "DNR_col_abs_land"    = "DNR: Colonization (Land)",
-  "DNR_col_abs_climate" = "DNR: Colonization (Climate)",
-  "DNR_col_abs_stable"  = "DNR: Colonization (Stable)",
-  "DNR_ext_per_land"    = "DNR: Extinction (Land)",
-  "DNR_ext_per_climate" = "DNR: Extinction (Climate)",
-  "DNR_ext_per_stable"  = "DNR: Extinction (Stable)"
-)
-
-y_labels <- c( # aesthetic: y-axis labels
-  
-  "(Intercept)"              = "(Intercept)",
-  "developed_total_base_z"  = "Developed (%)",
-  "forest_deciduous_base_z" = "Deciduous Forest (%)",
-  "forest_evergreen_base_z" = "Evergreen Forest (%)",
-  "forest_mixed_base_z"     = "Mixed Forest (%)",
-  "forest_total_diff_z"     = "Forest Change (%)",
-  "grassland_base_z"        = "Grassland (%)",
-  "shrub_scrub_base_z"      = "Shrub/Scrub (%)",
-  "wetlands_total_base_z"   = "Wetlands (%)",
-  "prcp_38yr_z"             = "Avg Precip",
-  "prcp_diff_z"             = "Δ Precip",
-  "tmax_38yr_z"             = "Avg Tmax",
-  "tmax_diff_z"             = "Δ Tmax",
-  "tmin_diff_z"             = "Δ Tmin",
-  "pa_percent_z"            = "Protected Area (%)",
-  "sr_Diff_z"               = "Δ Species Richness"
-)
-
-# ggplot() Vis
-# Heatmap of importance score by covariate, block set, response
-ggplot(all_imp_sep, aes(x = block_response_part,
-                        y = covariate,
-                        fill = importance)) +
-  geom_tile(color = NA) +   # <--- No borders anywhere
-  scale_fill_viridis_c(option = "viridis", name = "Importance",
-                       na.value = "white") +
-  scale_x_discrete(labels = x_labels_pretty) +
-  scale_y_discrete(labels = y_labels) + 
-  labs(
-    x = "Model Set (Response, Block Set)",
-    y = "Covariate"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid = element_blank()
-  )
-
-
-
-
-
-
-
-### --- STEP 2: "Manual" Interaction Models --- ###
-
 ### Carry-ins ###
 # Model data
 mod_colabs_rll_z
@@ -847,8 +449,8 @@ pa_int_covs <- c(
   "wetlands_total_base_z",
   "forest_mixed_base_z",
   "tmax_38yr_z",
-  "tmin_diff_z"
-  #"sr_Diff_z"
+  "tmin_diff_z",
+  "sr_Diff_z"
 )
 
 # Helper: build interaction terms (w/ PA)
@@ -888,7 +490,7 @@ All_responses <- list(
   DNR_ext_per  = "ext_per"
 )
 
-# Construct model
+# Construct global models
 global_formulas <- lapply(names(All_covariates), function(n) {
   BuildInteractions(
     response = All_responses[[n]],
@@ -924,7 +526,8 @@ DredgeToLong <- function(dredge_df, model_name, response_lhs) {
   meta_cols <- c("df", "logLik", "AICc", "delta", "weight")
   pred_cols <- setdiff(colnames(dredge_df), meta_cols)
   
-  # recover RHS formulas based on variables present (non-NA)
+  # recover formulas based on variables present (non-NA)
+  # rhs = right hand side, ie. covariates in model
   rhs_formulas <- apply(dredge_df[, pred_cols, drop = FALSE], 1, function(row) {
     included <- pred_cols[!is.na(row)]
     if (length(included) == 0) "1" else paste(included, collapse = " + ")
@@ -1004,26 +607,19 @@ lapply(Top_models_list, function(df) {
 
 
 
-
-# Identify uninformative parameters 
+# Identify uninformative parameters #
 ### Compare K sets among all models w/ delta < 2 
-# -------------------------------
-# Identify uninformative parameters 
-# -------------------------------
-### Compare K sets among all models with delta < 2 
 
-# --- 1. Helper: Get Reference Model (lowest AICc, smallest K as tie-breaker) ---
+# Helper: Get Reference Model (lowest AICc, smallest K as tie-breaker)
 GetReferenceModel <- function(df) {
   df[order(df$AICc, df$K), ][1, ]
 }
 
-# --- Apply to top models ---
+# Apply
 ReferenceModels <- lapply(Top_models_list, GetReferenceModel)
-ReferenceModels  # inspect
+ReferenceModels
 
-# -------------------------------
-# 2. Flag uninformative models
-# -------------------------------
+# Helper: flag uninformative models 
 FlagUninformativeModels <- function(df, aicc_tol = 2) {
   # Reference model: lowest AICc, tie-break with smallest K
   ref <- GetReferenceModel(df)
@@ -1039,9 +635,8 @@ FlagUninformativeModels <- function(df, aicc_tol = 2) {
   df
 }
 
-# -------------------------------
-# 3. Extract terms from formula
-# -------------------------------
+
+# Helper: extract parameters from automated model construction
 ExtractTerms <- function(formula_string) {
   rhs <- gsub(".*~", "", formula_string)
   terms <- trimws(unlist(strsplit(rhs, "\\+")))
@@ -1049,9 +644,8 @@ ExtractTerms <- function(formula_string) {
   terms
 }
 
-# -------------------------------
-# 4. Build reference-aware supported terms table
-# -------------------------------
+
+# Helper: build sumamry table comparing candidate moedls to refrence model
 GetTermSupport <- function(df, always_keep = c("pa_percent_z", "sr_Diff_z")) {
   
   df <- FlagUninformativeModels(df)
@@ -1084,11 +678,11 @@ GetTermSupport <- function(df, always_keep = c("pa_percent_z", "sr_Diff_z")) {
   # Include reference info (does this term appear in reference model?)
   agg$in_reference <- agg$term %in% ref_terms
   
-  # Classify
+  # Classify as uninfomrative
   agg$category <- "Supported"
   agg$category[!agg$in_reference & agg$n_models == agg$n_uninf] <- "Uninformative"
   
-  # Always keep PA and SR terms as Supported
+  # force keep PA and SR terms as Supported
   agg$category[agg$term %in% always_keep] <- "Supported"
   
   # Sort for readability: reference terms first
@@ -1097,15 +691,12 @@ GetTermSupport <- function(df, always_keep = c("pa_percent_z", "sr_Diff_z")) {
   agg
 }
 
-# --- Apply to top models ---
+# Apply
 Supported_terms_clean <- lapply(Top_models_list, GetTermSupport)
-
-# --- Quick inspection ---
 lapply(Supported_terms_clean, head, 10)
 
-# -------------------------------
-# 5. Build best candidate terms table
-# -------------------------------
+# Helper: build summary table for best candidate moedl parameters
+
 GetBestCandidateTerms <- function(supported_terms_list, keep_terms = c("pa_percent_z", "sr_Diff_z")) {
   
   lapply(supported_terms_list, function(term_df) {
@@ -1127,27 +718,227 @@ GetBestCandidateTerms <- function(supported_terms_list, keep_terms = c("pa_perce
   })
 }
 
-# --- Apply ---
+# Apply
 BestCandidateTerms <- GetBestCandidateTerms(Supported_terms_clean)
-
-# --- Inspect ---
 lapply(BestCandidateTerms, head, 10)
 
 
 
-### --- DIAGNOSTICS --- ###
+### --- MODEL EXAMINATION, DIAGNOSTICS --- ###
 ### Use reference models for each block set, response combo 
+# Can't use ggfortify::autoplot for non-Gaussian; insetad, arm::binnedplot() for residual plots,
+# performance::check_outliers 
 
-mod_ref <- ReferenceModels$RLL_col_abs
-
-
-fit_ref <- glm(
-  formula = mod_ref$formula,
-  data = mod_colabs_rll_z,
-  family = binomial
+# Run, diagnose reference models
+# RLL, ColABs
+rll_colabs_ref <- glm(col_abs ~
+                      pa_percent_z + sr_Diff_z
+                      + forest_mixed_base_z + forest_total_diff_z + shrub_scrub_base_z 
+                      + tmax_38yr_z + tmax_diff_z + wetlands_total_base_z + wetlands_total_diff_z 
+                      + forest_total_diff_z:pa_percent_z + pa_percent_z:sr_Diff_z + pa_percent_z:tmax_38yr_z 
+                      + pa_percent_z:wetlands_total_base_z,
+                      data = mod_colabs_rll_z,
+                      family = "binomial"
 )
 
-autoplot(fit_ref, which = 1:6)
+summary(rll_colabs_ref)
+binnedplot(
+  x = fitted(rll_colabs_ref),
+  y = residuals(rll_colabs_ref, type = "response")
+)
+check_outliers(rll_colabs_ref)
+
+
+# RLL, ExtPer
+rll_extper_ref <- glm(ext_per ~
+                      pa_percent_z + sr_Diff_z
+                      + forest_total_diff_z + grass_pasture_crop_base_z + tmax_38yr_z + tmin_diff_z,
+                      data = mod_extper_rll_z,
+                      family = "binomial"
+)
+
+summary(rll_extper_ref)
+binnedplot(
+  x = fitted(rll_extper_ref),
+  y = residuals(rll_extper_ref, type = "response")
+)
+check_outliers(rll_extper_ref)
+
+
+# DNR, ColAbs
+dnr_colabs_ref <- glm(col_abs ~
+                        pa_percent_z + sr_Diff_z
+                      + developed_total_base_z + forest_mixed_base_z + forest_total_diff_z 
+                      + grass_pasture_crop_base_z + prcp_38yr_z + shrub_scrub_base_z 
+                      + tmax_38yr_z + wetlands_total_base_z + forest_total_diff_z:pa_percent_z,
+                      data = mod_colabs_dnr_z,
+                      family = "binomial"                 
+)
+
+summary(dnr_colabs_ref)
+binnedplot(
+  x = fitted(dnr_colabs_ref),
+  y = residuals(dnr_colabs_ref, type = "response")
+)
+check_outliers(dnr_colabs_ref)
+
+
+# DNR, ExtPer
+dnr_extper_ref <- glm(ext_per ~
+                      pa_percent_z + sr_Diff_z
+                      + developed_total_base_z + forest_total_diff_z + tmax_38yr_z,
+                      data = mod_extper_dnr_z,
+                      family = "binomial"                      
+)
+
+summary(dnr_extper_ref)
+binnedplot(
+  x = fitted(dnr_extper_ref),
+  y = residuals(dnr_extper_ref, type = "response")
+)
+check_outliers(dnr_extper_ref)
+
+
+# Visualize PA Effects #
+# Consolidate reference models
+ref_models <- list(
+  "RLL Colonization" = rll_colabs_ref,
+  "RLL Extinction"   = rll_extper_ref,
+  "DNR Colonization" = dnr_colabs_ref,
+  "DNR Extinction"   = dnr_extper_ref
+)
+
+# Extract PA coefficient value, se
+pa_effects <- lapply(names(ref_models), function(mod_name){
+  tidy_mod <- broom::tidy(ref_models[[mod_name]])
+  
+  # PA main efffects only
+  pa_row <- tidy_mod %>% filter(term == "pa_percent_z") %>%
+    mutate(Model = mod_name)
+  
+  return(pa_row)
+}) %>% bind_rows()
+
+
+# Visualize: Coefficient plot (PA main effects)
+ggplot(pa_effects, aes(x = Model, y = estimate, ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
+  geom_pointrange(color = "orange", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  labs(
+    x = "Model",
+    y = "Standardized Effect of Protected Area",
+    caption = "Figure 1. Standardzied main effect of protected area (PA) on apparent colonization and extinction 
+    for the Red-bellied Woodpecker among two survey unit subsets. Points represent effect estimates for each model, 
+    with horizantal lines representing 95% confidence intervals. PA main effects were generally small and often non-significant
+    across models, with the exception of the DNR Colonization model, which had a modest, negative effect (estimate = -0.41, p = 0.013)."
+  ) +
+  theme_minimal(base_size = 13) +
+  coord_flip() + # flip for horizontal readability
+  theme(
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    plot.caption = element_text(hjust = 0.5, size = 11, margin = margin(t = 15))
+) 
 
 
 
+# Assumption Checking #
+# Helper: extract binned residuals to create a single, faceted binned reidual plot for all model results
+# Helper function: compute binned residuals
+ComputeBinnedResiduals <- function(model, label, bins = 20) {
+  df <- tibble(
+    fitted = fitted(model),
+    resid  = residuals(model, type = "response")
+  )
+  
+  # create equal-sized bins of fitted probabilities
+  df <- df %>%
+    mutate(bin = cut(fitted,
+                     breaks = quantile(fitted, probs = seq(0, 1, length.out = bins + 1)),
+                     include.lowest = TRUE)) %>%
+    group_by(bin) %>%
+    summarise(
+      fitted_mean = mean(fitted, na.rm = TRUE),
+      resid_mean  = mean(resid, na.rm = TRUE),
+      resid_se    = sd(resid, na.rm = TRUE)/sqrt(n()),
+      .groups = "drop"
+    ) %>%
+    mutate(model = label)
+  
+  return(df)
+}
+
+
+binned_all <- bind_rows(
+  ComputeBinnedResiduals(rll_colabs_ref, "RLL – Colonization–Absence"),
+  ComputeBinnedResiduals(rll_extper_ref, "RLL – Extinction–Persistence"),
+  ComputeBinnedResiduals(dnr_colabs_ref, "DNR – Colonization–Absence"),
+  ComputeBinnedResiduals(dnr_extper_ref, "DNR – Extinction–Persistence")
+)
+
+
+# construct faceted plot
+ggplot(binned_all, aes(x = fitted_mean, y = resid_mean)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = resid_mean - resid_se,
+                    ymax = resid_mean + resid_se), width = 0.02) +
+  facet_wrap(~ model, ncol = 2) +
+  labs(
+    x = "Mean fitted probability",
+    y = "Mean binned residual",
+    caption = "Figure S2. Binned residual diagnostic plots for each block set x response logistic model combination.
+    Each point represents the mean residual within a group of fitted probabilities, with vertical error bars representing
+    a +/- 1 standard error of the mean residual. Aggregation of of residuals at low fitted probabilities for the 
+    Extinction/Persistence data models reflects the rarity of extinction events within the data, rather than any issue with model fit."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    plot.caption = element_text(hjust = 0, size = 10, margin = margin(t = 15))
+  ) 
+
+
+### --- OTHER SUPPLEMENTAL PLOTS --- ###
+
+# Species Richness #
+### Histogram of SR diff between RLL and NDR comp block sets
+
+# Data
+srdiff_rll <- covars_raw_rll %>% # RLL blocks
+  filter(atlas_block %in% blocks_rll) %>%
+  dplyr::select(sr_Diff) %>%
+  mutate(source = "rll")
+
+srdiff_dnr <- covars_raw_rll %>% # DNR blocks
+  filter(atlas_block %in% blocks_dnr) %>%
+  dplyr::select(sr_Diff) %>%
+  mutate(source = "dnr")
+
+srdiff_hist_data <- bind_rows(srdiff_rll, srdiff_dnr) # combine
+
+# Plot
+ggplot(srdiff_hist_data, aes(x = sr_Diff, fill = source)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+  scale_fill_manual(
+    values = c("rll" = "orange", "dnr" = "steelblue"),
+    labels = c("DNR", "RLL")
+  ) +
+  theme_minimal(base_size = 13) +
+  labs(
+    x = "Species Richness Difference (Atlas 2 - Atlas 1)",
+    y = "Count",
+    fill = "Block Set",
+    caption = "Figure S1. Distribution of difference in species richness between Wisconsin Breeding Bird Atlas 1 (1995-2000) and 2 (2015-2019) between two
+    different survey block subsets (All Blocks, N = 7056; RLL, n = 2535; DNR, n = 858). Overall, blocks in the second Atlas were surveyed more comprehensively than 
+    in Atlas 1, resulting in higher-per-block species richness in Atlas 2 generally. The minimally filtered RLL block set retains a significant number of 
+    survey units with high species richness differences compared to the heavily filtered DNR block set, which largely controlled for these coverage discrepancies."
+  ) +
+  theme(
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    plot.caption = element_text(hjust = 0, size = 10, margin = margin(t = 15))
+  )

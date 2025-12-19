@@ -135,11 +135,11 @@ write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
 factor_covars_all
 stable_covars_all
 land_covars_all
-  land_covars_base
-  land_covars_diff
+land_covars_base
+land_covars_diff
 climate_covars_all
-  climate_covars_base
-  climate_covars_diff
+climate_covars_base
+climate_covars_diff
 
 
 # Species-specific Thinned Covariate Sets
@@ -150,13 +150,11 @@ factor_covars_reduced <- c("atlas_block", "transition_state")
 
 stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
 
-land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
-                         "grass_pasture_crop_base", "developed_total_base",
+land_covars_reduced <- c("shrub_scrub_base", "developed_total_base",
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_total_base",
+                         "wetlands_woody_base", "wetlands_herb_base",
                          
-                          "grass_pasture_crop_diff",
-                          "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
+                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 
 covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
 
@@ -182,8 +180,8 @@ mod_colabs_rll_z <- mod_data_rll %>%
   )) %>%
   mutate(col_abs = ifelse(transition_state == "Colonization", 1, 0)) %>% # binomial response variable
   dplyr::select(all_of(factor_covars_reduced), # columns to keep
-         ends_with("_z"),
-         col_abs)
+                ends_with("_z"),
+                col_abs)
 
 mod_extper_rll_z <- mod_data_rll %>%
   filter(transition_state %in% c("Extinction", "Persistence")) %>%
@@ -246,11 +244,11 @@ M3 <- cor(mod_colabs_dnr_z[, covar_cols_colabs_dnr], use = "pairwise.complete.ob
 M4 <- cor(mod_extper_dnr_z[, covar_cols_extper_dnr], use = "pairwise.complete.obs")
 
 
-corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6) # visualize correlation plots
-corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot::corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6) # visualize correlation plots
+corrplot::corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
-corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
-corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot::corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot::corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
 
 high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE) # list out high correlation pairs
@@ -270,10 +268,9 @@ apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]]
 ### Removed one covar from highly correlated pairs when |r| > 0.7
 factor_covars_reduced
 
-land_covars_reduced <- c("water_open_base", "shrub_scrub_base", 
-                         "grass_pasture_crop_base", "developed_total_base",
+land_covars_reduced <- c("shrub_scrub_base", "developed_total_base",
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_total_base",
+                         "wetlands_woody_base", "wetlands_herb_base",
                          
                          "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 
@@ -311,9 +308,10 @@ alias(vif_model4)
 
 factor_covars_reduced <- c("atlas_block")
 
-land_covars_reduced <- c("shrub_scrub_base", "grass_pasture_crop_base", 
-                         "developed_total_base", "forest_mixed_base",
-                         "wetlands_total_base",
+land_covars_reduced <- c("shrub_scrub_base", "developed_total_base",
+                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
+                         "wetlands_woody_base", "wetlands_herb_base",
+                         
                          "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
 land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
 
@@ -327,119 +325,193 @@ covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_
 covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
+
 #######################
 ### MODEL SELECTION ### 
 #######################
 
-### --- PROCESS --- ###
+### --- PROCESS, SET UP --- ###
 
-### AICc of pre-screened, correlation-controlled, biologically plausible 
-# candidates with both additive and interaction terms.    
+### Steps ###
+# 1) Partitioned AICc Model Selection
+# Construct, rank separate models partitioning land and climate covariates
+# Carry over best covariates for each set into interactions, global model
 
-# MuMIn::dredge() automates candidate set construction of all main effect covar combos
-# but user must manually define, limit interaction terms. User should also further
-# restrict candidate models prior to running dredge(), otherwise models will not 
-# converge and/or overload processor. 
-
-### Two Steps:
-# 1) "Manual" Interaction Terms
+# 2) Interaction Terms
 # Generate plausible 2-way interactions w/ protected area
 
-# 2) Global Model AICc Selection
-# Discern, examine top candidates
-
-# Assign Covariates to each block set x response 
-# Same for all for this species
-
-RLL_col_abs_covs <- c(
-  "shrub_scrub_base_z",
-  "grass_pasture_crop_base_z",
-  "developed_total_base_z",
-  "forest_mixed_base_z", 
-  "wetlands_total_base_z", 
-  "developed_total_base_z", 
-  "forest_total_diff_z",
-  "wetlands_total_diff_z",
-  "tmax_38yr_z",
-  "prcp_38yr_z",
-  "tmax_diff_z",
-  "tmin_diff_z",
-  "prcp_diff_z",
-  "pa_percent_z",
-  "sr_Diff_z"
-)
-
-RLL_ext_per_covs <- c(
-  "shrub_scrub_base_z",
-  "grass_pasture_crop_base_z",
-  "developed_total_base_z",
-  "forest_mixed_base_z", 
-  "wetlands_total_base_z", 
-  "developed_total_base_z", 
-  "forest_total_diff_z",
-  "wetlands_total_diff_z",
-  "tmax_38yr_z",
-  "prcp_38yr_z",
-  "tmax_diff_z",
-  "tmin_diff_z",
-  "prcp_diff_z",
-  "pa_percent_z",
-  "sr_Diff_z"
-)
+# 3) Global AICc Model Selection
+# Models w/ best land, climate covariates + interaction terms w/ PA
 
 
-DNR_col_abs_covs <- c(
-  "shrub_scrub_base_z",
-  "grass_pasture_crop_base_z",
-  "developed_total_base_z",
-  "forest_mixed_base_z", 
-  "wetlands_total_base_z", 
-  "developed_total_base_z", 
-  "forest_total_diff_z",
-  "wetlands_total_diff_z",
-  "tmax_38yr_z",
-  "prcp_38yr_z",
-  "tmax_diff_z",
-  "tmin_diff_z",
-  "prcp_diff_z",
-  "pa_percent_z",
-  "sr_Diff_z"
-)
+### DATA ###
+# Relevant carry-in data from above workflow
 
-DNR_ext_per_covs <- c(
-  "shrub_scrub_base_z",
-  "grass_pasture_crop_base_z",
-  "developed_total_base_z",
-  "forest_mixed_base_z", 
-  "wetlands_total_base_z", 
-  "developed_total_base_z", 
-  "forest_total_diff_z",
-  "wetlands_total_diff_z",
-  "tmax_38yr_z",
-  "prcp_38yr_z",
-  "tmax_diff_z",
-  "tmin_diff_z",
-  "prcp_diff_z",
-  "pa_percent_z",
-  "sr_Diff_z"
-)
-
-
-### Carry-ins ###
 # Model data
 mod_colabs_rll_z
 mod_extper_rll_z
 mod_colabs_dnr_z
 mod_extper_dnr_z
 
-# Thinned covar sets by block set, response
-RLL_col_abs_covs
-RLL_ext_per_covs
-DNR_col_abs_covs
-DNR_ext_per_covs
+# Covariate IDs/vectors
+land_covars_reduced
+land_covars_reduced_z
+climate_covars_reduced
+climate_covars_reduced_z
 
 
-### Model Construction ###
+
+### --- STEP 1 --- ###
+
+### Full, additive candidate model set for climate and land cover covariates
+# w/ null model and no interaction terms included
+
+### FUNCTIONS ###
+# Helper: generate all additive combinations w/in partitioned covariate sets
+GenerateAdditiveSets <- function(covariates) {
+  unlist(
+    lapply(seq_along(covariates), function(k) {
+      combn(covariates, k, FUN = function(x) paste(x, collapse = "+" ))
+    }),
+    use.names = FALSE
+  )
+}
+
+
+# Helper: build, fit, rank partitioned candidate models
+FitPartitionedModels <- function(response, data, covariates, family = binomial) {
+  
+  # Model formula construction
+  predictors <- GenerateAdditiveSets(covariates)
+  
+  formulas <- c(
+    list(as.formula(paste(response, "~ 1"))),
+    lapply(predictors, function(rhs) {
+      as.formula(paste(response, "~", rhs))
+    })
+  )
+  
+  # Fit models
+  models <- lapply(formulas, function(f) {
+    glm(f, data = data, family = family)
+  })
+  
+  # Identify models 
+  modnames <- c("NULL", predictors)
+  names(models) <- modnames
+  
+  # AICc ranking
+  aictab(
+    cand.set = models,
+    modnames = modnames,
+    sort = TRUE
+  )
+}
+
+
+### APPLICATION ###
+
+# Models by unique block x response subsets #
+# Climate covariates partition
+climate_col_rll <- FitPartitionedModels(
+  response = "col_abs",
+  data = mod_colabs_rll_z,
+  covariates = climate_covars_reduced_z,
+  family = binomial
+)
+
+climate_col_dnr <- FitPartitionedModels(
+  response = "col_abs",
+  data = mod_colabs_dnr_z,
+  covariates = climate_covars_reduced_z,
+  family = binomial
+)
+
+climate_ext_rll <- FitPartitionedModels(
+  response = "ext_per",
+  data = mod_extper_rll_z,
+  covariates = climate_covars_reduced_z,
+  family = binomial
+)
+
+climate_ext_dnr <- FitPartitionedModels(
+  response = "ext_per",
+  data = mod_extper_dnr_z,
+  covariates = climate_covars_reduced_z,
+  family = binomial
+)
+
+
+# Land cover covariates partition
+land_col_rll <- FitPartitionedModels(
+  response = "col_abs",
+  data = mod_colabs_rll_z,
+  covariates = land_covars_reduced_z,
+  family = binomial
+)
+
+land_col_dnr <- FitPartitionedModels(
+  response = "col_abs",
+  data = mod_colabs_dnr_z,
+  covariates = land_covars_reduced_z,
+  family = binomial
+)
+
+land_ext_rll <- FitPartitionedModels(
+  response = "ext_per",
+  data = mod_extper_rll_z,
+  covariates = land_covars_reduced_z,
+  family = binomial
+)
+
+land_ext_dnr <- FitPartitionedModels(
+  response = "ext_per",
+  data = mod_extper_dnr_z,
+  covariates = land_covars_reduced_z,
+  family = binomial
+)
+
+
+# Sumamrize results #
+partition_results <- list(
+  col_rll_climate = climate_col_rll,
+  col_rll_land    = land_col_rll,
+  col_dnr_climate = climate_col_dnr,
+  col_dnr_land    = land_col_dnr,
+  ext_rll_climate = climate_ext_rll,
+  ext_rll_land    = land_ext_rll,
+  ext_dnr_climate = climate_ext_dnr,
+  ext_dnr_land    = land_ext_dnr
+)
+
+
+
+
+
+# Covariate sets per block x response subset
+
+RLL_col_abs_covs <- c(
+
+)
+
+RLL_ext_per_covs <- c(
+
+)
+
+
+DNR_col_abs_covs <- c(
+
+)
+
+DNR_ext_per_covs <- c(
+
+)
+
+
+
+
+
+### --- STEP 2 --- ###
 
 # Interactions #
 # Custom list
@@ -466,6 +538,10 @@ BuildInteractions <- function(response, covars, pa_int_list) {
   
   as.formula(paste(response, "~", rhs))
 }
+
+
+
+### --- STEP 3 --- ###
 
 # Build global models
 # Subset data
@@ -732,11 +808,10 @@ lapply(BestCandidateTerms, head, 10)
 # Run, diagnose reference models
 # RLL, ColABs
 rll_colabs_ref <- glm(col_abs ~
-                      pa_percent_z + sr_Diff_z
-                      + forest_mixed_base_z + forest_total_diff_z + shrub_scrub_base_z 
-                      + tmax_38yr_z + tmax_diff_z + wetlands_total_base_z + wetlands_total_diff_z 
-                      + forest_total_diff_z:pa_percent_z + pa_percent_z:sr_Diff_z + pa_percent_z:tmax_38yr_z 
-                      + pa_percent_z:wetlands_total_base_z,
+                        cropland_base_z + grassland_base_z + pa_percent_z + pasture_base_z + 
+                        pasture_crop_diff_z + prcp_38yr_z + shrub_scrub_base_z + sr_Diff_z + 
+                        tmax_38yr_z + tmin_diff_z + cropland_base_z:pa_percent_z + 
+                        pa_percent_z:pasture_base_z + pa_percent_z:tmax_38yr_z,
                       data = mod_colabs_rll_z,
                       family = "binomial"
 )
@@ -751,8 +826,11 @@ check_outliers(rll_colabs_ref)
 
 # RLL, ExtPer
 rll_extper_ref <- glm(ext_per ~
-                      pa_percent_z + sr_Diff_z
-                      + forest_total_diff_z + grass_pasture_crop_base_z + tmax_38yr_z + tmin_diff_z,
+                        cropland_base_z + grassland_base_z + pa_percent_z + 
+                        pasture_base_z + prcp_38yr_z + shrub_scrub_base_z + 
+                        sr_Diff_z + tmax_38yr_z + tmax_diff_z + 
+                        grassland_base_z:pa_percent_z + pa_percent_z:sr_Diff_z + 
+                        pa_percent_z:tmax_38yr_z,
                       data = mod_extper_rll_z,
                       family = "binomial"
 )
@@ -767,10 +845,9 @@ check_outliers(rll_extper_ref)
 
 # DNR, ColAbs
 dnr_colabs_ref <- glm(col_abs ~
-                        pa_percent_z + sr_Diff_z
-                      + developed_total_base_z + forest_mixed_base_z + forest_total_diff_z 
-                      + grass_pasture_crop_base_z + prcp_38yr_z + shrub_scrub_base_z 
-                      + tmax_38yr_z + wetlands_total_base_z + forest_total_diff_z:pa_percent_z,
+                        pa_percent_z +
+                        cropland_base_z + developed_total_base_z + forest_total_base_z + 
+                        pasture_base_z + pasture_crop_diff_z + prcp_38yr_z + sr_Diff_z + tmin_diff_z,
                       data = mod_colabs_dnr_z,
                       family = "binomial"                 
 )
@@ -785,8 +862,11 @@ check_outliers(dnr_colabs_ref)
 
 # DNR, ExtPer
 dnr_extper_ref <- glm(ext_per ~
-                      pa_percent_z + sr_Diff_z
-                      + developed_total_base_z + forest_total_diff_z + tmax_38yr_z,
+                        cropland_base_z + grassland_base_z + pa_percent_z + 
+                        pasture_base_z + shrub_scrub_base_z + shrub_scrub_diff_z + 
+                        sr_Diff_z + tmax_38yr_z + tmax_diff_z + cropland_base_z:pa_percent_z + 
+                        grassland_base_z:pa_percent_z + pa_percent_z:pasture_base_z + 
+                        pa_percent_z:shrub_scrub_base_z + pa_percent_z:sr_Diff_z,
                       data = mod_extper_dnr_z,
                       family = "binomial"                      
 )
@@ -828,9 +908,8 @@ ggplot(pa_effects, aes(x = Model, y = estimate, ymin = estimate - 1.96*std.error
     x = "Model",
     y = "Standardized Effect of Protected Area",
     caption = "Figure 1. Standardzied main effect of protected area (PA) on apparent colonization and extinction 
-    for the Red-bellied Woodpecker among two survey unit subsets. Points represent effect estimates for each model, 
-    with horizantal lines representing 95% confidence intervals. PA main effects were generally small and often non-significant
-    across models, with the exception of the DNR Colonization model, which had a modest, negative effect (estimate = -0.41, p = 0.013)."
+    for the Eastern Meadowlark among two survey unit subsets. Points represent effect estimates for each model, 
+    with horizantal lines representing 95% confidence intervals."
   ) +
   theme_minimal(base_size = 13) +
   coord_flip() + # flip for horizontal readability
@@ -838,7 +917,7 @@ ggplot(pa_effects, aes(x = Model, y = estimate, ymin = estimate - 1.96*std.error
     axis.title.x = element_text(margin = margin(t = 15)),
     axis.title.y = element_text(margin = margin(r = 15)),
     plot.caption = element_text(hjust = 0.5, size = 11, margin = margin(t = 15))
-) 
+  ) 
 
 
 
@@ -889,8 +968,7 @@ ggplot(binned_all, aes(x = fitted_mean, y = resid_mean)) +
     y = "Mean binned residual",
     caption = "Figure S2. Binned residual diagnostic plots for each block set x response logistic model combination.
     Each point represents the mean residual within a group of fitted probabilities, with vertical error bars representing
-    a +/- 1 standard error of the mean residual. Aggregation of of residuals at low fitted probabilities for the 
-    Extinction/Persistence data models reflects the rarity of extinction events within the data, rather than any issue with model fit."
+    a +/- 1 standard error of the mean residual."
   ) +
   theme_minimal(base_size = 13) +
   theme(

@@ -23,16 +23,13 @@ library(DescTools)
 library(Metrics)
 library(pROC)
 library(rsample)
-library(glmnet)
 library(lme4)
-library(MuMIn)
 library(pscl)
 library(AICcmodavg)
 library(arm)
 
 # Visualization
 library(ggplot2)
-library(ggfortify)
 library(viridis)
 library(gt)
 
@@ -168,7 +165,7 @@ covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_cova
 
 spp_name <- "Red-bellied Woodpecker"
 
-# RLL
+# Col-RLL
 mod_colabs_rll_z <- mod_data_rll %>%
   filter(transition_state %in% c("Colonization", "Absence")) %>% # filter by state
   dplyr::select(all_of(factor_covars_reduced), # select numeric, factor covars
@@ -183,6 +180,7 @@ mod_colabs_rll_z <- mod_data_rll %>%
                 ends_with("_z"),
                 col_abs)
 
+# Ext-RLL
 mod_extper_rll_z <- mod_data_rll %>%
   filter(transition_state %in% c("Extinction", "Persistence")) %>%
   dplyr::select(all_of(factor_covars_reduced),
@@ -197,7 +195,23 @@ mod_extper_rll_z <- mod_data_rll %>%
                 ends_with("_z"),
                 ext_per)
 
-# DNR
+# Per-RLL
+mod_perext_rll_z <- mod_data_rll %>%
+  filter(transition_state %in% c("Persistence", "Extinction")) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                all_of(covars_numeric_reduced)) %>%
+  mutate(across(
+    .cols = all_of(covars_numeric_reduced),
+    .fns = ~ as.numeric(scale(.)),
+    .names = "{.col}_z"
+  )) %>%
+  mutate(per_ext = ifelse(transition_state == "Persistence", 1, 0)) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                ends_with("_z"),
+                per_ext)
+
+
+# Col-DNR
 mod_colabs_dnr_z <- mod_data_dnr %>%
   filter(transition_state %in% c("Colonization", "Absence")) %>%
   dplyr::select(all_of(factor_covars_reduced),
@@ -212,6 +226,7 @@ mod_colabs_dnr_z <- mod_data_dnr %>%
                 ends_with("_z"),
                 col_abs)
 
+# Ext-DNR
 mod_extper_dnr_z <- mod_data_dnr %>%
   filter(transition_state %in% c("Extinction", "Persistence")) %>%
   dplyr::select(all_of(factor_covars_reduced),
@@ -226,29 +241,50 @@ mod_extper_dnr_z <- mod_data_dnr %>%
                 ends_with("_z"),
                 ext_per)
 
+# Per-DNR
+mod_perext_dnr_z <- mod_data_dnr %>%
+  filter(transition_state %in% c("Persistence", "Extinction")) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                all_of(covars_numeric_reduced)) %>%
+  mutate(across(
+    .cols = all_of(covars_numeric_reduced),
+    .fns = ~ as.numeric(scale(.)),
+    .names = "{.col}_z"
+  )) %>%
+  mutate(per_ext = ifelse(transition_state == "Persistence", 1, 0)) %>%
+  dplyr::select(all_of(factor_covars_reduced),
+                ends_with("_z"),
+                per_ext)
+
 
 # CORRELATIONS, COLLINEARITY # 
 
 # Pairwise Correlations
-covar_cols_colabs_rll <- grep("_z$", names(mod_colabs_rll_z), value = TRUE)
-covar_cols_extper_rll <- grep("_z$", names(mod_extper_rll_z), value = TRUE)
+covar_corrs_colabs_rll <- grep("_z$", names(mod_colabs_rll_z), value = TRUE)
+covar_corrs_extper_rll <- grep("_z$", names(mod_extper_rll_z), value = TRUE)
+covar_corrs_perext_rll <- grep("_z$", names(mod_perext_rll_z), value = TRUE)
 
-covar_cols_colabs_dnr <- grep("_z$", names(mod_colabs_dnr_z), value = TRUE)
-covar_cols_extper_dnr <- grep("_z$", names(mod_extper_dnr_z), value = TRUE)
+covar_corrs_colabs_dnr <- grep("_z$", names(mod_colabs_dnr_z), value = TRUE)
+covar_corrs_extper_dnr <- grep("_z$", names(mod_extper_dnr_z), value = TRUE)
+covar_corrs_perext_dnr <- grep("_z$", names(mod_perext_rll_z), value = TRUE)
 
 
-M1 <- cor(mod_colabs_rll_z[, covar_cols_colabs_rll], use = "pairwise.complete.obs")
-M2 <- cor(mod_extper_rll_z[, covar_cols_extper_rll], use = "pairwise.complete.obs")
+M1 <- cor(mod_colabs_rll_z[, covar_corrs_colabs_rll], use = "pairwise.complete.obs")
+M2 <- cor(mod_extper_rll_z[, covar_corrs_extper_rll], use = "pairwise.complete.obs")
+M3 <- cor(mod_perext_rll_z[, covar_corrs_perext_rll], use = "pairwise.complete.obs")
 
-M3 <- cor(mod_colabs_dnr_z[, covar_cols_colabs_dnr], use = "pairwise.complete.obs")
-M4 <- cor(mod_extper_dnr_z[, covar_cols_extper_dnr], use = "pairwise.complete.obs")
+M4 <- cor(mod_colabs_dnr_z[, covar_corrs_colabs_dnr], use = "pairwise.complete.obs")
+M5 <- cor(mod_extper_dnr_z[, covar_corrs_extper_dnr], use = "pairwise.complete.obs")
+M6 <- cor(mod_perext_dnr_z[, covar_corrs_perext_rll], use = "pairwise.complete.obs")
 
 
 corrplot::corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6) # visualize correlation plots
 corrplot::corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
-
 corrplot::corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
+
 corrplot::corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot::corrplot(M5, method = "color", tl.cex = 0.7, number.cex = 0.6)
+corrplot::corrplot(M6, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
 
 high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE) # list out high correlation pairs
@@ -262,6 +298,12 @@ apply(high_corr3, 1, function(i) cat(rownames(M3)[i[1]], "-", colnames(M3)[i[2]]
 
 high_corr4 <- which(abs(M4) > 0.7 & abs(M4) < 1, arr.ind = TRUE)
 apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]], "r =", M4[i[1],i[2]], "\n"))
+
+high_corr5 <- which(abs(M5) > 0.7 & abs(M5) < 1, arr.ind = TRUE)
+apply(high_corr5, 1, function(i) cat(rownames(M5)[i[1]], "-", colnames(M5)[i[2]], "r =", M5[i[1],i[2]], "\n"))
+
+high_corr6 <- which(abs(M6) > 0.7 & abs(M6) < 1, arr.ind = TRUE)
+apply(high_corr6, 1, function(i) cat(rownames(M6)[i[1]], "-", colnames(M6)[i[2]], "r =", M6[i[1],i[2]], "\n"))
 
 
 # Correlation Thinned Covariate Sets
@@ -292,19 +334,27 @@ vif_model2 <- glm(ext_per ~ ., data = mod_extper_rll_z[, c("ext_per", covars_num
 vif(vif_model2)
 alias(vif_model2)
 
-vif_model3 <- glm(col_abs ~ ., data = mod_colabs_dnr_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
+vif_model3 <- glm(per_ext ~ ., data = mod_perext_rll_z[, c("per_ext", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model3)
 alias(vif_model3)
 
-vif_model4 <- glm(ext_per ~ ., data = mod_extper_dnr_z[, c("ext_per", covars_numeric_reduced_z)], family = binomial)
+vif_model4 <- glm(col_abs ~ ., data = mod_colabs_dnr_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model4)
 alias(vif_model4)
 
+vif_model5 <- glm(ext_per ~ ., data = mod_extper_dnr_z[, c("ext_per", covars_numeric_reduced_z)], family = binomial)
+vif(vif_model5)
+alias(vif_model5)
+
+vif_model6 <- glm(per_ext ~ ., data = mod_perext_dnr_z[, c("per_ext", covars_numeric_reduced_z)], family = binomial)
+vif(vif_model6)
+alias(vif_model6)
+
+
 # VIF Thinned Covariate Sets
 # Run 2+ x to check incoming and reduced/outgoing covariate set
-### Keep relatively loose, keep when VIF < 10 to not thin data too much; ran previously
-# w/ VIF < 7 and had problems in model ranking w/ an excessive # of competatie mods
-# Final set prior to AICc/Model Selection process
+### Keep relatively loose, keep when VIF < 10 to not thin data too much prior
+# to first model ranking step
 
 factor_covars_reduced <- c("atlas_block")
 
@@ -350,8 +400,11 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 # Model data
 mod_colabs_rll_z
 mod_extper_rll_z
+mod_perext_rll_z
+
 mod_colabs_dnr_z
 mod_extper_dnr_z
+mod_perext_dnr_z
 
 # Covariate IDs/vectors
 land_covars_reduced
@@ -361,7 +414,7 @@ climate_covars_reduced_z
 
 
 
-### --- STEP 1 --- ###
+### --- STEP 1: COVARIATE PARTITIONED MODELS --- ###
 
 ### Full, additive candidate model set for climate and land cover covariates
 # w/ null model and no interaction terms included
@@ -427,6 +480,7 @@ climate_col_dnr <- FitPartitionedModels(
   family = binomial
 )
 
+
 climate_ext_rll <- FitPartitionedModels(
   response = "ext_per",
   data = mod_extper_rll_z,
@@ -437,6 +491,21 @@ climate_ext_rll <- FitPartitionedModels(
 climate_ext_dnr <- FitPartitionedModels(
   response = "ext_per",
   data = mod_extper_dnr_z,
+  covariates = climate_covars_reduced_z,
+  family = binomial
+)
+
+
+climate_per_rll <- FitPartitionedModels(
+  response = "per_ext",
+  data = mod_perext_rll_z,
+  covariates = climate_covars_reduced_z,
+  family = binomial
+)
+
+climate_per_dnr <- FitPartitionedModels(
+  response = "per_ext",
+  data = mod_perext_dnr_z,
   covariates = climate_covars_reduced_z,
   family = binomial
 )
@@ -457,6 +526,7 @@ land_col_dnr <- FitPartitionedModels(
   family = binomial
 )
 
+
 land_ext_rll <- FitPartitionedModels(
   response = "ext_per",
   data = mod_extper_rll_z,
@@ -472,23 +542,138 @@ land_ext_dnr <- FitPartitionedModels(
 )
 
 
-# Sumamrize results #
+land_per_rll <- FitPartitionedModels(
+  response = "per_ext",
+  data = mod_perext_rll_z,
+  covariates = land_covars_reduced_z,
+  family = binomial
+)
+
+land_per_dnr <- FitPartitionedModels(
+  response = "per_ext",
+  data = mod_perext_dnr_z,
+  covariates = land_covars_reduced_z,
+  family = binomial
+)
+
+
+# Store results #
 partition_results <- list(
   col_rll_climate = climate_col_rll,
   col_rll_land    = land_col_rll,
   col_dnr_climate = climate_col_dnr,
   col_dnr_land    = land_col_dnr,
+  
   ext_rll_climate = climate_ext_rll,
   ext_rll_land    = land_ext_rll,
   ext_dnr_climate = climate_ext_dnr,
-  ext_dnr_land    = land_ext_dnr
+  ext_dnr_land    = land_ext_dnr,
+  
+  per_rll_climate = climate_per_rll,
+  per_rll_land    = land_per_rll,
+  per_dnr_climate = climate_per_dnr,
+  per_dnr_land    = land_per_dnr
 )
 
+# Check NULL model performance #
+climate_col_rll[climate_col_rll$Modnames == "NULL", ]
+land_col_rll[land_col_rll$Modnames == "NULL", ]
+
+climate_col_dnr[climate_col_dnr$Modnames == "NULL", ]
+land_col_dnr[land_col_dnr$Modnames == "NULL", ]
+
+
+climate_ext_rll[climate_ext_rll$Modnames == "NULL", ]
+land_ext_rll[land_ext_rll$Modnames == "NULL", ]
+
+climate_ext_dnr[climate_ext_dnr$Modnames == "NULL", ]
+land_ext_dnr[land_ext_dnr$Modnames == "NULL", ]
+
+
+climate_per_rll[climate_per_rll$Modnames == "NULL", ]
+land_per_rll[land_per_rll$Modnames == "NULL", ]
+
+climate_per_dnr[climate_per_dnr$Modnames == "NULL", ]
+land_per_dnr[land_per_dnr$Modnames == "NULL", ]
+
+### RBWO: NULLs unsupported for all block x response subsets
+
+
+# Evaluate top model partitions #
+# Identify supported covariates from each partition (deltaAICc <= 2)
+
+# Col-RLL
+top_climate_col_rll <- climate_col_rll %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_climate_col_rll)
+
+top_land_col_rll <- land_col_rll %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_land_col_rll)
+
+# Col-DNR
+top_climate_col_dnr <- climate_col_dnr %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_climate_col_dnr)
+
+top_land_col_dnr <- land_col_dnr %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_land_col_dnr)
+
+
+# Ext-RLL
+top_climate_ext_rll <- climate_ext_rll %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_climate_ext_rll)
+
+top_land_ext_rll <- land_ext_rll %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_land_ext_rll)
+
+# Ext-DNR
+top_climate_ext_dnr <- climate_ext_dnr %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_climate_ext_dnr)
+
+top_land_ext_dnr <- land_ext_dnr %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_land_ext_dnr)
+
+
+# Per-RLL
+top_climate_per_rll <- climate_per_rll %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_climate_per_rll)
+
+top_land_per_rll <- land_per_rll %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_land_per_rll)
+
+# Per-DNR
+top_climate_per_dnr <- climate_per_dnr %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_climate_per_dnr)
+
+top_land_per_dnr <- land_per_dnr %>%
+  as.data.frame() %>%
+  filter(Delta_AICc <= 2, Modnames != "NULL")
+View(top_land_per_dnr)
 
 
 
-
-# Covariate sets per block x response subset
+# Covariate sets per block x response subset #
+### Chosen from [REFERENCE] among top models (deltaAICc <= 2)
 
 RLL_col_abs_covs <- c(
 
@@ -496,6 +681,10 @@ RLL_col_abs_covs <- c(
 
 RLL_ext_per_covs <- c(
 
+)
+
+RLL_per_ext_covs <- c(
+  
 )
 
 
@@ -507,21 +696,20 @@ DNR_ext_per_covs <- c(
 
 )
 
+DNR_per_ext_covs <- c(
+  
+)
 
 
 
 
-### --- STEP 2 --- ###
 
-# Interactions #
+
+### --- STEP 2: INTERACTIONS --- ###
+
 # Custom list
 pa_int_covs <- c(
-  "developed_total_base_z",
-  "forest_total_diff_z",
-  "wetlands_total_base_z",
-  "forest_mixed_base_z",
-  "tmax_38yr_z",
-  "tmin_diff_z",
+
   "sr_Diff_z"
 )
 
@@ -541,7 +729,12 @@ BuildInteractions <- function(response, covars, pa_int_list) {
 
 
 
-### --- STEP 3 --- ###
+
+
+
+
+
+### --- STEP 3: GLOBAL MODELS --- ###
 
 # Build global models
 # Subset data

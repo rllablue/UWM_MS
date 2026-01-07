@@ -352,7 +352,6 @@ alias(vif_model6)
 
 
 # VIF Thinned Covariate Sets
-# Run 2+ x to check incoming and reduced/outgoing covariate set
 ### Keep relatively loose, keep when VIF < 10 to not thin data too much prior
 # to first model ranking step
 
@@ -575,29 +574,6 @@ partition_results <- list(
   per_dnr_land    = land_per_dnr
 )
 
-# Check NULL model performance #
-climate_col_rll[climate_col_rll$Modnames == "NULL", ]
-land_col_rll[land_col_rll$Modnames == "NULL", ]
-
-climate_col_dnr[climate_col_dnr$Modnames == "NULL", ]
-land_col_dnr[land_col_dnr$Modnames == "NULL", ]
-
-
-climate_ext_rll[climate_ext_rll$Modnames == "NULL", ]
-land_ext_rll[land_ext_rll$Modnames == "NULL", ]
-
-climate_ext_dnr[climate_ext_dnr$Modnames == "NULL", ]
-land_ext_dnr[land_ext_dnr$Modnames == "NULL", ]
-
-
-climate_per_rll[climate_per_rll$Modnames == "NULL", ]
-land_per_rll[land_per_rll$Modnames == "NULL", ]
-
-climate_per_dnr[climate_per_dnr$Modnames == "NULL", ]
-land_per_dnr[land_per_dnr$Modnames == "NULL", ]
-
-### RBWO: NULLs unsupported for all block x response subsets
-
 
 # Evaluate top model partitions #
 # Identify supported covariates from each partition (deltaAICc <= 2)
@@ -676,30 +652,61 @@ View(top_land_per_dnr)
 ### Chosen from [REFERENCE] among top models (deltaAICc <= 2)
 
 RLL_col_abs_covs <- c(
-
+  "pa_percent_z", "sr_Diff_z",
+  
+  "tmax_38yr_z", "prcp_38yr_z", "prcp_diff_z",
+  
+  "shrub_scrub_base_z", "developed_total_base_z",
+  "forest_evergreen_base_z", "forest_mixed_base_z",
+  "wetlands_woody_base_z", "wetlands_herb_base_z"
 )
 
 RLL_ext_per_covs <- c(
-
+  "pa_percent_z", "sr_Diff_z",
+  
+  "tmax_38yr_z", "tmin_diff_z",
+  
+  "forest_evergreen_base_z", "forest_mixed_base_z", 
+  "wetlands_woody_base_z", 
+  "forest_total_diff_z"
 )
 
 RLL_per_ext_covs <- c(
+  "pa_percent_z", "sr_Diff_z",
   
+  "tmax_38yr_z", "tmin_diff_z",
+  
+  "forest_evergreen_base_z", "forest_mixed_base_z", "wetlands_woody_base_z", 
+  "forest_total_diff_z"
 )
 
 
 DNR_col_abs_covs <- c(
-
+  "pa_percent_z", "sr_Diff_z",
+  
+  "tmax_38yr_z", "prcp_38yr_z",
+  
+  "developed_total_base_z", "wetlands_woody_base_z",
+  "forest_deciduous_base_z", "forest_evergreen_base_z", "forest_mixed_base_z"
 )
 
 DNR_ext_per_covs <- c(
-
+  "pa_percent_z", "sr_Diff_z",
+  
+  "tmax_38yr_z", "tmax_diff_z", "tmin_diff_z",
+  
+  "forest_deciduous_base_z", "wetlands_woody_base_z", 
+  "developed_total_diff_z", "forest_total_diff_z"
 )
 
 DNR_per_ext_covs <- c(
+  "pa_percent_z", "sr_Diff_z",
   
+  "tmax_38yr_z", "tmax_diff_z", "tmin_diff_z",
+  
+  "forest_deciduous_base_z", "wetlands_woody_base_z", 
+  "developed_total_diff_z", "forest_total_diff_z"
 )
-
 
 
 
@@ -707,19 +714,27 @@ DNR_per_ext_covs <- c(
 
 ### --- STEP 2: INTERACTIONS --- ###
 
-# Custom list
+### Custom list
 pa_int_covs <- c(
-
+  "tmax_38yr_z",
+  "tmin_diff_z",
+  
+  "forest_evergreen_base_z",
+  "forest_deciduous_base_z", 
+  "forest_mixed_base_z",
+  "wetlands_woody_base_z",
+  "forest_total_diff_z",
+  
   "sr_Diff_z"
 )
 
-# Helper: build interaction terms (w/ PA)
-BuildInteractions <- function(response, covars, pa_int_list) {
+# Helper: build custom interaction terms (w/ PA)
+BuildInteractions <- function(response, covariates, pa_int_list) {
   
-  main_terms <- covars
+  main_terms <- covariates
   
-  # only construct interactions for overlap of covars and chosen PA-int covars
-  int_covs <- intersect(covars, pa_int_list)
+  # only construct chosen PA-int covars
+  int_covs <- intersect(covariates, pa_int_list)
   int_terms <- paste0("pa_percent_z:", int_covs)
   
   rhs <- paste(c(main_terms, int_terms), collapse = " + ")
@@ -731,102 +746,186 @@ BuildInteractions <- function(response, covars, pa_int_list) {
 
 
 
-
-
-
 ### --- STEP 3: GLOBAL MODELS --- ###
 
-# Build global models
 # Subset data
 All_model_data <- list(
   RLL_col_abs  = mod_colabs_rll_z,
   RLL_ext_per  = mod_extper_rll_z,
+  RLL_per_ext  = mod_perext_rll_z,
+  
   DNR_col_abs  = mod_colabs_dnr_z,
-  DNR_ext_per  = mod_extper_dnr_z
+  DNR_ext_per  = mod_extper_dnr_z,
+  DNR_per_ext  = mod_perext_dnr_z
 )
 
 All_covariates <- list(
   RLL_col_abs  = RLL_col_abs_covs,
   RLL_ext_per  = RLL_ext_per_covs,
+  RLL_per_ext  = RLL_per_ext_covs,
+  
   DNR_col_abs  = DNR_col_abs_covs,
-  DNR_ext_per  = DNR_ext_per_covs
+  DNR_ext_per  = DNR_ext_per_covs,
+  DNR_per_ext  = DNR_per+ext_covs
 )
 
 All_responses <- list(
   RLL_col_abs  = "col_abs",
   RLL_ext_per  = "ext_per",
+  RLL_per_ext  = "per_ext",
+  
   DNR_col_abs  = "col_abs",
-  DNR_ext_per  = "ext_per"
+  DNR_ext_per  = "ext_per",
+  DNR_per_ext  = "per_ext"
 )
 
-# Construct global models
-global_formulas <- lapply(names(All_covariates), function(n) {
-  BuildInteractions(
-    response = All_responses[[n]],
-    covars   = All_covariates[[n]],
-    pa_int_list = pa_int_covs
+
+### Helper: Construct additive terms 
+BuildAdditiveRHS <- function(covariates) {
+  unlist(
+    lapply(seq_along(covariates), function(k) {
+      combn(covariates, k, FUN = function(x) paste(x, collapse = " + "))
+    }),
+    use.names = FALSE
   )
-})
-names(global_formulas) <- names(All_covariates)
-
-
-
-## Run, Fit ###
-# Individual models for each block set, response
-
-# Helper: automate model fit, rank
-options(na.action = "na.fail") # required for dredge()
-
-RunSelection <- function(formula, data) {
-  fit <- glm(formula, data = data, family = binomial)
-  dredge(fit, rank = "AICc")
 }
 
-Model_selection_tables <- lapply(names(global_formulas), function(n) {
-  RunSelection(global_formulas[[n]], All_model_data[[n]])
-})
-names(Model_selection_tables) <- names(global_formulas)
+### Helper: Add interaction terms based on manual selection
+AddPAInteractions <- function(rhs,
+                                     pa_var = "pa_percent_z",
+                                     pa_int_covs) {
+  
+  terms <- trimws(unlist(strsplit(rhs, "\\+")))
+
+  # If no PA main effect, then no interactions
+  if (!pa_var %in% terms) return(rhs)
+  
+  # Eligible interaction covariates present
+  int_covs <- intersect(terms, pa_int_covs)
+  int_covs <- setdiff(int_covs, pa_var)
+  
+  if (length(int_covs) == 0) return(rhs)
+  
+  int_terms <- paste0(pa_var, ":", int_covs)
+  
+  paste(c(rhs, int_terms), collapse = " + ")
+}
 
 
-## Extract Results ##
-# Helper: Reformat dredge data to long
-DredgeToLong <- function(dredge_df, model_name, response_lhs) {
+### Helper: Construct global model
+BuildGlobalRHS <- function(covariates,
+                             pa_int_covs,
+                             pa_var = "pa_percent_z") {
   
-  meta_cols <- c("df", "logLik", "AICc", "delta", "weight")
-  pred_cols <- setdiff(colnames(dredge_df), meta_cols)
+  additive_rhs <- BuildAdditiveRHS(covars)
   
-  # recover formulas based on variables present (non-NA)
-  # rhs = right hand side, ie. covariates in model
-  rhs_formulas <- apply(dredge_df[, pred_cols, drop = FALSE], 1, function(row) {
-    included <- pred_cols[!is.na(row)]
-    if (length(included) == 0) "1" else paste(included, collapse = " + ")
+  unique(
+    unlist(
+      lapply(additive_rhs, function(rhs) {
+        c(
+          rhs,
+          AddPAInteractions(rhs, pa_var, pa_int_covs)
+        )
+      })
+    )
+  )
+}
+
+
+### Helper: Fit, Rank global and null models
+FitGlobalModels <- function(response,
+                            data,
+                            covars,
+                            pa_int_covs,
+                            pa_var = "pa_percent_z",
+                            family = binomial) {
+  
+  rhs_terms <- BuildGlobalRHS(
+    covars      = covars,
+    pa_int_covs = pa_int_covs,
+    pa_var      = pa_var
+  )
+  
+  # null + candidate formulas
+  formulas <- c(
+    list(as.formula(paste(response, "~ 1"))),
+    lapply(rhs_terms, function(rhs) {
+      as.formula(paste(response, "~", rhs))
+    })
+  )
+  
+  models <- lapply(formulas, function(f) {
+    glm(f, data = data, family = family)
   })
   
-  full_formulas <- paste(response_lhs, "~", rhs_formulas)
+  modnames <- c("NULL", rhs_terms)
+  names(models) <- modnames
+  
+  aictab(
+    cand.set = models,
+    modnames = modnames,
+    sort     = TRUE
+  )
+}
+
+
+
+# Run selection 
+Global_AICc_tables <- lapply(names(All_model_data), function(nm) {
+  
+  FitGlobalModels(
+    response    = All_responses[[nm]],
+    data        = All_model_data[[nm]],
+    covars      = All_covariates[[nm]],
+    pa_int_covs = pa_int_covs,
+    family      = binomial
+  )
+})
+
+names(Global_AICc_tables) <- names(All_model_data)
+
+
+
+# Long form
+AICcToLong <- function(aic_tab, model_name, response) {
+  
+  df <- as.data.frame(aic_tab)
   
   data.frame(
     model_name = model_name,
-    model_id   = paste0(model_name, "_m", seq_len(nrow(dredge_df))),
-    formula    = full_formulas,
-    logLik.    = as.numeric(dredge_df$logLik),
-    K          = dredge_df$df,
-    AICc       = dredge_df$AICc,
-    delta      = dredge_df$delta,
-    weight     = dredge_df$weight,
+    model_id   = paste0(model_name, "_m", seq_len(nrow(df))),
+    formula    = paste(response, "~", df$Modnames),
+    logLik     = df$logLik,
+    K          = df$K,
+    AICc       = df$AICc,
+    delta      = df$Delta_AICc,
+    weight     = df$AICcWt,
     stringsAsFactors = FALSE
   )
 }
 
-response_map <- All_responses
 
-Long_models_list <- lapply(names(Model_selection_tables), function(n) {
-  dredge_tbl <- as.data.frame(Model_selection_tables[[n]])
-  DredgeToLong(dredge_tbl, n, response_map[[n]])
+Global_models_long <- lapply(names(Global_AICc_tables), function(nm) {
+  
+  AICcToLong(
+    aic_tab   = Global_AICc_tables[[nm]],
+    model_name = nm,
+    response   = All_responses[[nm]]
+  )
 })
 
-Long_models <- do.call(rbind, Long_models_list)
+names(Global_models_long) <- names(Global_AICc_tables)
 
-names(Long_models_list) <- names(Model_selection_tables)
+
+# Top models
+Top_global_models <- lapply(Global_models_long, function(df) {
+  df[!is.na(df$delta) & df$delta <= 2, , drop = FALSE]
+})
+
+
+
+
+
 
 
 # Full AICc results by block set, response

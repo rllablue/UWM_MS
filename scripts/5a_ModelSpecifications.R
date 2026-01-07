@@ -766,7 +766,7 @@ All_covariates <- list(
   
   DNR_col_abs  = DNR_col_abs_covs,
   DNR_ext_per  = DNR_ext_per_covs,
-  DNR_per_ext  = DNR_per+ext_covs
+  DNR_per_ext  = DNR_per_ext_covs
 )
 
 All_responses <- list(

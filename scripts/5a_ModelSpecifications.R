@@ -175,10 +175,10 @@ mod_colabs_rll_z <- mod_data_rll %>%
     .fns = ~ as.numeric(scale(.)),
     .names = "{.col}_z"
   )) %>%
-  mutate(col_abs = ifelse(transition_state == "Colonization", 1, 0)) %>% # binomial response variable
+  mutate(col = ifelse(transition_state == "Colonization", 1, 0)) %>% # binomial response variable
   dplyr::select(all_of(factor_covars_reduced), # columns to keep
                 ends_with("_z"),
-                col_abs)
+                col)
 
 # Ext-RLL
 mod_extper_rll_z <- mod_data_rll %>%
@@ -190,10 +190,10 @@ mod_extper_rll_z <- mod_data_rll %>%
     .fns = ~ as.numeric(scale(.)),
     .names = "{.col}_z"
   )) %>%
-  mutate(ext_per = ifelse(transition_state == "Extinction", 1, 0)) %>%
+  mutate(ext = ifelse(transition_state == "Extinction", 1, 0)) %>%
   dplyr::select(all_of(factor_covars_reduced),
                 ends_with("_z"),
-                ext_per)
+                ext)
 
 # Per-RLL
 mod_perext_rll_z <- mod_data_rll %>%
@@ -205,10 +205,10 @@ mod_perext_rll_z <- mod_data_rll %>%
     .fns = ~ as.numeric(scale(.)),
     .names = "{.col}_z"
   )) %>%
-  mutate(per_ext = ifelse(transition_state == "Persistence", 1, 0)) %>%
+  mutate(per = ifelse(transition_state == "Persistence", 1, 0)) %>%
   dplyr::select(all_of(factor_covars_reduced),
                 ends_with("_z"),
-                per_ext)
+                per)
 
 
 # Col-DNR
@@ -221,10 +221,10 @@ mod_colabs_dnr_z <- mod_data_dnr %>%
     .fns = ~ as.numeric(scale(.)),
     .names = "{.col}_z"
   )) %>%
-  mutate(col_abs = ifelse(transition_state == "Colonization", 1, 0)) %>%
+  mutate(col = ifelse(transition_state == "Colonization", 1, 0)) %>%
   dplyr::select(all_of(factor_covars_reduced),
                 ends_with("_z"),
-                col_abs)
+                col)
 
 # Ext-DNR
 mod_extper_dnr_z <- mod_data_dnr %>%
@@ -236,10 +236,10 @@ mod_extper_dnr_z <- mod_data_dnr %>%
     .fns = ~ as.numeric(scale(.)),
     .names = "{.col}_z"
   )) %>%
-  mutate(ext_per = ifelse(transition_state == "Extinction", 1, 0)) %>%
+  mutate(ext = ifelse(transition_state == "Extinction", 1, 0)) %>%
   dplyr::select(all_of(factor_covars_reduced),
                 ends_with("_z"),
-                ext_per)
+                ext)
 
 # Per-DNR
 mod_perext_dnr_z <- mod_data_dnr %>%
@@ -251,10 +251,10 @@ mod_perext_dnr_z <- mod_data_dnr %>%
     .fns = ~ as.numeric(scale(.)),
     .names = "{.col}_z"
   )) %>%
-  mutate(per_ext = ifelse(transition_state == "Persistence", 1, 0)) %>%
+  mutate(per = ifelse(transition_state == "Persistence", 1, 0)) %>%
   dplyr::select(all_of(factor_covars_reduced),
                 ends_with("_z"),
-                per_ext)
+                per)
 
 
 # CORRELATIONS, COLLINEARITY # 
@@ -326,27 +326,27 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 # VIF
-vif_model1 <- glm(col_abs ~ ., data = mod_colabs_rll_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
+vif_model1 <- glm(col ~ ., data = mod_colabs_rll_z[, c("col", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model1)
 alias(vif_model1)
 
-vif_model2 <- glm(ext_per ~ ., data = mod_extper_rll_z[, c("ext_per", covars_numeric_reduced_z)], family = binomial)
+vif_model2 <- glm(ext ~ ., data = mod_extper_rll_z[, c("ext", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model2)
 alias(vif_model2)
 
-vif_model3 <- glm(per_ext ~ ., data = mod_perext_rll_z[, c("per_ext", covars_numeric_reduced_z)], family = binomial)
+vif_model3 <- glm(per ~ ., data = mod_perext_rll_z[, c("per", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model3)
 alias(vif_model3)
 
-vif_model4 <- glm(col_abs ~ ., data = mod_colabs_dnr_z[, c("col_abs", covars_numeric_reduced_z)], family = binomial)
+vif_model4 <- glm(col ~ ., data = mod_colabs_dnr_z[, c("col", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model4)
 alias(vif_model4)
 
-vif_model5 <- glm(ext_per ~ ., data = mod_extper_dnr_z[, c("ext_per", covars_numeric_reduced_z)], family = binomial)
+vif_model5 <- glm(ext ~ ., data = mod_extper_dnr_z[, c("ext", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model5)
 alias(vif_model5)
 
-vif_model6 <- glm(per_ext ~ ., data = mod_perext_dnr_z[, c("per_ext", covars_numeric_reduced_z)], family = binomial)
+vif_model6 <- glm(per ~ ., data = mod_perext_dnr_z[, c("per", covars_numeric_reduced_z)], family = binomial)
 vif(vif_model6)
 alias(vif_model6)
 
@@ -405,7 +405,7 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 ### DATA ###
 
-# Model data
+# Model data (responses: col, abs, per)
 mod_colabs_rll_z
 mod_extper_rll_z
 mod_perext_rll_z
@@ -415,11 +415,10 @@ mod_extper_dnr_z
 mod_perext_dnr_z
 
 # Covariate IDs/vectors
-land_covars_reduced
 land_covars_reduced_z
-climate_covars_reduced
 climate_covars_reduced_z
-
+effort_covar <- "sr_Diff_z"
+pa_covar <- "pa_percent_z"
 
 
 ### --- STEP 1: COVARIATE PARTITIONED MODELS --- ###
@@ -433,11 +432,14 @@ climate_covars_reduced_z
 
 ### Helper: generate all additive predictor combos w/in partitioned covariate sets
 BuildAdditiveRHS <- function(covariates) {
+  
+  covariates <- unique(covariates)
   unlist(
     lapply(seq_along(covariates), function(k) {
-      combn(covariates, k, FUN = function(x) paste(x, collapse = "+" ))
+      combn(covariates, k, FUN = function(x) paste(unique(x), collapse = " + " ))
     }),
     use.names = FALSE
+    
   )
 }
 
@@ -445,10 +447,13 @@ BuildAdditiveRHS <- function(covariates) {
 FitAdditiveModels <- function(response, 
                               data, 
                               covariates, 
+                              required = "sr_Diff_z",
                               family = binomial,
                               include_null = TRUE) {
   
   # Predictor structure
+  covariates <- unique(c(covariates, required))
+  
   rhs_terms <- BuildAdditiveRHS(covariates)
   
   formulas <- lapply(rhs_terms, function(rhs) {
@@ -457,10 +462,7 @@ FitAdditiveModels <- function(response,
   
   # Null structure
   if (include_null) {
-    formulas <- c(    
-      list(as.formula(paste(response, "~ 1"))),
-      formulas
-    )
+    formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
     modnames <- c("NULL", rhs_terms)
   } else {
     modnames <- rhs_terms
@@ -488,22 +490,23 @@ FitAdditiveModels <- function(response,
 ### Automate function application to partitioned climate and land cover models 
 # for each block/response subset simultaneously
 
+### Create data directories for fx lookup
 # Grid containing rows of all response x blocks x partition combos
 partition_grid <- expand.grid(
-  response = c("col_abs", "ext_per", "per_ext"),
+  response = c("col", "ext", "per"),
   blocks = c("DNR", "RLL"),
   partition = c("climate", "land"),
   stringsAsFactors = FALSE
 )
 
 data_dir <- list(
-  RLL_col_abs = mod_colabs_rll_z,
-  RLL_ext_per = mod_extper_rll_z,
-  RLL_per_ext = mod_perext_rll_z,
+  RLL_col = mod_colabs_rll_z,
+  RLL_ext = mod_extper_rll_z,
+  RLL_per = mod_perext_rll_z,
   
-  DNR_col_abs = mod_colabs_dnr_z,
-  DNR_ext_per = mod_extper_dnr_z,
-  DNR_per_ext = mod_perext_dnr_z
+  DNR_col = mod_colabs_dnr_z,
+  DNR_ext = mod_extper_dnr_z,
+  DNR_per = mod_perext_dnr_z
 )
 
 covar_dir <- list(
@@ -518,15 +521,15 @@ partition_results <- lapply(seq_len(nrow(partition_grid)), function(i) {
   # Extract ith row of partition_grid (unique response x block set x covariate partition combo) 
   row <- partition_grid[i, ]
   
-  # Lookup key for named blocks x response combo
+  # Look-up key for named blocks x response combo
   key <- paste(row$blocks, row$response, sep = "_")
   
   # Fit, rank add models w/in each partition
   FitAdditiveModels(
-    response = row$response,
-    data = data_dir[[key]],
-    covariates = covar_dir[[row$partition]],
-    family = binomial,
+    response     = row$response,
+    data         = data_dir[[key]],
+    covariates   = c(pa_covar, covar_dir[[row$partition]]),
+    family       = binomial,
     include_null = TRUE
     
   )
@@ -597,46 +600,12 @@ reference_part_covariates <- lapply(reference_part_models, function(df) {
 
 
 
-
-
 ### --- STEP 2: GLOBAL MODELS --- ###
-
-# Subset data ##################################################################
-All_model_data <- list(
-  RLL_col_abs  = mod_colabs_rll_z,
-  RLL_ext_per  = mod_extper_rll_z,
-  RLL_per_ext  = mod_perext_rll_z,
-  
-  DNR_col_abs  = mod_colabs_dnr_z,
-  DNR_ext_per  = mod_extper_dnr_z,
-  DNR_per_ext  = mod_perext_dnr_z
-)
-
-All_covariates <- list(
-  RLL_col_abs  = RLL_col_abs_covs,
-  RLL_ext_per  = RLL_ext_per_covs,
-  RLL_per_ext  = RLL_per_ext_covs,
-  
-  DNR_col_abs  = DNR_col_abs_covs,
-  DNR_ext_per  = DNR_ext_per_covs,
-  DNR_per_ext  = DNR_per_ext_covs
-)
-
-All_responses <- list(
-  RLL_col_abs  = "col_abs",
-  RLL_ext_per  = "ext_per",
-  RLL_per_ext  = "per_ext",
-  
-  DNR_col_abs  = "col_abs",
-  DNR_ext_per  = "ext_per",
-  DNR_per_ext  = "per_ext"
-) ##############################################################################
-
 
 ### STEP 2A: Global Additive Models ###
 
-### Combine climate, land covars lists from partitioned models into single covar list/pool
-# for new additive mod selection process; find new ref model to carry into interaction step.
+### Combine climate, land covars lists from partitioned models into single covar list/pool for 
+# new additive mod selection process; find new ref model to carry into interaction step (2B).
 
 ### Helper: Merge partitioned ref mod climate, land covar lists
 MergePartitionedCovariates <- function(ref_covariate_list) {
@@ -669,12 +638,20 @@ MergePartitionedCovariates <- function(ref_covariate_list) {
     idx <- names_dir$blocks   == blocks &
            names_dir$response == resp
     
-    unique(unlist(ref_covariate_list[idx]))
+    covs <- unlist(ref_covariate_list[idx])
+    
+    if (length(covs) == 0) { # fail-safe
+      warning("No covariates for ", blocks, "_", resp)
+      return(character(0))
+    }
+    
+    unique(covs)
+    
   })
   
-names(merged) <- paste(combos$blocks, combos$response, sep = "_")
+  names(merged) <- paste(combos$blocks, combos$response, sep = "_")
 
-merged
+  merged
   
 }
 
@@ -682,82 +659,31 @@ merged
 merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
 
 
-
-
-
-################################################################################
-# Apply: Run selection on combined predictor additive models per block/response subset
-Additive_AICc_tables <- lapply(names(All_model_data), function(nm) {
+# Apply: add. model build, ref model and covar extraction workflow
+global_add_models <- lapply(names(merged_ref_covariates), function(key) {
   
   FitAdditiveModels(
-    response    = All_responses[[nm]],
-    data        = All_model_data[[nm]],
-    covariates  = All_covariates[[nm]],
+    response     = strsplit(key, "_")[[1]][2],
+    data         = data_dir[[key]],
+    covariates   = merged_ref_covariates[[key]],
+    family       = binomial,
+    include_null = TRUE
   )
 })
 
-names(Additive_AICc_tables) <- names(All_model_data)
+names(global_add_models) <- names(merged_ref_covariates)
 
 
-### Helper: Extract 
+top_add_models <- lapply(global_add_models, ExtractTopModels, delta = 2)
 
-# Helper: Pivot to long form
-PivotLongAICc <- function(aic_tab, model_name, response) {
+reference_add_models <- lapply(top_add_models, ExtractReferenceModel)
+
+reference_add_covariates <- lapply(reference_add_models, function(df) {
   
-  df <- as.data.frame(aic_tab)
-  
-  if (nrow(df) == 0) {
-    stop("Empty AICc table for: ", model_name)
-  }
-  
-  data.frame(
-    model_name = model_name,
-    model_id   = paste0(model_name, "_m", seq_len(nrow(df))),
-    response   = response,
-    
-    formula = paste(response, "~", df$Modnames),
-    
-    K      = df$K,
-    logLik = df$LL,
-    AICc   = df$AICc,
-    delta  = df$Delta_AICc,
-    weight = df$AICcWt,
-    
-    stringsAsFactors = FALSE
-  )
-}
+  if (is.null(df) || nrow(df) == 0) return(character(0))
+  ExtractReferenceCovariates(df$Modnames[1])
 
-
-Additive_models_long <- setNames(
-  lapply(names(Additive_AICc_tables), function(nm) {
-    PivotLongAICc(
-      aic_tab    = Additive_AICc_tables[[nm]],
-      model_name = nm,
-      response   = All_responses[[nm]]
-    )
-  }),
-  names(Additive_AICc_tables)
-)
-
-
-# Apply: Top models
-Top_additive_models <- lapply(Additive_models_long, function(df) {
-  df[!is.na(df$delta) & df$delta <= 2, , drop = FALSE]
-})
-
-
-
-# Full AICc results by block set, response
-RLL_col_abs_top  <- Top_additive_models$RLL_col_abs
-RLL_ext_per_top  <- Top_additive_models$RLL_ext_per
-DNR_col_abs_top  <- Top_additive_models$DNR_col_abs
-DNR_ext_per_top  <- Top_additive_models$DNR_ext_per
-
-View(RLL_col_abs_top)
-View(RLL_ext_per_top)
-View(DNR_col_abs_top)
-View(DNR_ext_per_top)
-
+  })
 
 
 

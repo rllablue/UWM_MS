@@ -9,6 +9,5 @@
 ### WIP Notes ###
 
 ### 1/13/2026: 
-# Finish global model selection steps (additive land + climate) and interaction terms, pulling a reference model from the previous into each
-# next step. 
+# Finish illustrative AICc tabels for Ben supp materials. 
 # Run for several species (RBWO, RCKI, EAME, OVEN)

@@ -35,11 +35,6 @@ library(gt)
 library(webshot2)
 
 
-### --- FLEXIBLE SPECS --- ###
-
-spp_name <- "Red-bellied Woodpecker"
-
-
 ### --- DATAFRAMES --- ###
 
 # Carry-over DataFrames #
@@ -104,6 +99,11 @@ climate_covars_diff <- c("tmax_diff", "tmin_diff", "prcp_diff")
 
 
 # New DataFrames #
+
+# Species
+spp_name <- "Red-bellied Woodpecker"
+
+
 # RLL modeling df
 mod_data_rll <- spp_zf_rll %>%
   filter(common_name == spp_name) %>%
@@ -401,6 +401,7 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 # 3) Model Diagnostics
+# AICc Table visualization
 # Assess reference models for each block/response for uninformative parameters, etc.
 
 
@@ -716,7 +717,6 @@ reference_add_covariates <- lapply(reference_add_models, function(df) {
 
 
 
-
 ### --- STEP 2B: INTERACTIONS --- ###
 
 ### Custom list
@@ -1018,6 +1018,12 @@ ExportAICcTables <- function(tables, out_dir) {
 ExportAICcTables(part_tables, "outputs/tables/aicc_partitioned")
 ExportAICcTables(add_tables,  "outputs/tables/aicc_additive")
 ExportAICcTables(int_tables,  "outputs/tables/aicc_interaction")
+
+
+
+
+
+
 
 
 

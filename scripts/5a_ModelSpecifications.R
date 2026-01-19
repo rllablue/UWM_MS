@@ -101,7 +101,7 @@ climate_covars_diff <- c("tmax_diff", "tmin_diff", "prcp_diff")
 # New DataFrames #
 
 # Species
-spp_name <- "Red-bellied Woodpecker"
+spp_name <- "Eastern Meadowlark"
 
 
 # RLL modeling df

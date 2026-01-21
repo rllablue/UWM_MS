@@ -101,7 +101,7 @@ climate_covars_diff <- c("tmax_diff", "tmin_diff", "prcp_diff")
 # New DataFrames #
 
 # Species
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Eastern Meadowlark"
 
 
 # RLL modeling df
@@ -142,20 +142,22 @@ climate_covars_diff
 
 
 # Species-specific Thinned Covariate Sets
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Eastern Meadowlark"
 
 
 factor_covars_reduced <- c("atlas_block", "transition_state")
 
 stable_covars_all <- c("sr_Diff", "pa_percent")
 
-land_covars_reduced <- c("developed_total_base", 
-                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-
-                         "wetlands_woody_base", "wetlands_herb_base",
+land_covars_reduced <- c("barren_land_base", "shrub_scrub_base", 
+                         "developed_lower_base", "developed_upper_base",
+                         "forest_total_base",
+                         "grassland_base", "pasture_crop_base",
                          
-                         "developed_total_diff", "forest_evergreen_diff", 
-                         "forest_total_diff", "wetlands_total_diff")
+                         "barren_land_diff", "shrub_scrub_diff", 
+                         "developed_total_diff", 
+                         "forest_total_diff",
+                         "grassland_diff", "pasture_crop_diff")
 
 covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
 
@@ -167,7 +169,7 @@ covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_cova
 # what promotes det = 0. 
 ### Scaling of covars w/in subsets for relevant normalized values
 
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Eastern Meadowlark"
 
 # Col-RLL
 mod_colabs_rll_z <- mod_data_rll %>%
@@ -314,13 +316,14 @@ apply(high_corr6, 1, function(i) cat(rownames(M6)[i[1]], "-", colnames(M6)[i[2]]
 ### Removed one covar from highly correlated pairs when |r| > 0.7
 factor_covars_reduced
 
-land_covars_reduced <- c("developed_total_base", 
-                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_woody_base", "wetlands_herb_base",
+land_covars_reduced <- c("barren_land_base", "shrub_scrub_base", 
+                         "developed_lower_base", "forest_total_base",
+                         "grassland_base", "pasture_crop_base",
                          
-                         "forest_total_diff", "wetlands_total_diff")
+                         "barren_land_diff", "shrub_scrub_diff", 
+                         "grass_pasture_crop_diff")
 
-climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff")
+climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "prcp_diff", "tmax_diff", "tmin_diff")
 
 stable_covars_reduced <- c("sr_Diff", "pa_percent")
 
@@ -361,14 +364,15 @@ alias(vif_model6)
 
 factor_covars_reduced <- c("atlas_block")
 
-land_covars_reduced <- c("developed_total_base", 
-                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_woody_base", "wetlands_herb_base",
+land_covars_reduced <- c("barren_land_base", "shrub_scrub_base", 
+                         "developed_lower_base", "forest_total_base",
+                         "grassland_base", "pasture_crop_base",
                          
-                         "forest_total_diff", "wetlands_total_diff")
+                         "barren_land_diff", "shrub_scrub_diff", 
+                         "grass_pasture_crop_diff")
 land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
 
-climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff")
+climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "prcp_diff", "tmax_diff", "tmin_diff")
 climate_covars_reduced_z <- paste0(climate_covars_reduced, "_z")
 
 stable_covars_reduced # "sr_Diff", "pa_percent"
@@ -725,7 +729,9 @@ reference_add_covariates <- lapply(reference_add_models, function(df) {
 ### Custom list
 pa_int_covs <- c(
   "tmax_38yr_z",
-  "wetlands_woody_base_z"
+  "grassland_base_z",
+  "pasture_crop_base_z",
+  "grass_pasture_crop_diff_z"
 )
 
 # Helper: build custom interaction terms (w/ PA)
@@ -892,127 +898,3 @@ names(final_glm_models) <- names(reference_int_models)
 
 final_model_summaries <- lapply(final_glm_models, summary)
 
-
-
-
-
-### --- VISUALIZE --- ###
-
-### Formatted, exportable AICc tables for top model sets (deltaAICc < 2) for each 
-# blocks x response subsets at each step.
-
-FormatAICcTable <- function(df) {
-  
-  df %>%
-    mutate(
-      AICc       = round(AICc, 2),
-      Delta_AICc = round(Delta_AICc, 2),
-      AICcWt     = round(AICcWt, 3)
-    ) %>%
-    dplyr::select(
-      Model = Modnames,
-      K,
-      AICc,
-      Delta_AICc,
-      AICcWt
-    )
-}
-
-
-ParseModelName <- function(name) {
-  
-  parts <- strsplit(name, "_")[[1]]
-  
-  if (length(parts) == 3) {
-    # partitioned: response_blocks_partition
-    list(
-      response  = parts[1],
-      blocks    = parts[2],
-      partition = parts[3]
-    )
-  } else if (length(parts) == 2) {
-    # global models: blocks_response
-    list(
-      response  = parts[2],
-      blocks    = parts[1],
-      partition = NA
-    )
-  } else {
-    stop("Unexpected model name format: ", name)
-  }
-}
-
-
-PrepareAICcTables <- function(model_list, step_name) {
-  
-  lapply(names(model_list), function(nm) {
-    
-    meta <- ParseModelName(nm)
-    
-    FormatAICcTable(model_list[[nm]]) %>%
-      mutate(
-        Step      = step_name,
-        Response  = meta$response,
-        Blocks    = meta$blocks,
-        Partition = meta$partition
-      )
-  }) |> setNames(names(model_list))
-}
-
-
-part_tables <- PrepareAICcTables(top_part_models, "Partitioned")
-add_tables  <- PrepareAICcTables(top_add_models,  "Additive")
-int_tables  <- PrepareAICcTables(top_int_models,  "Interaction")
-
-
-
-SaveAICcPNG <- function(df, file, title, subtitle) {
-  
-  gt(df) %>%
-    tab_header(
-      title    = title,
-      subtitle = subtitle
-    ) %>%
-    cols_align("center", everything()) %>%
-    tab_style(
-      style = cell_text(weight = "bold"),
-      locations = cells_column_labels(everything())
-    ) %>%
-    opt_all_caps() %>%
-    opt_table_outline() %>%
-    gtsave(file, expand = 15)
-}
-
-
-ExportAICcTables <- function(tables, out_dir) {
-  
-  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-  
-  for (nm in names(tables)) {
-    
-    df <- tables[[nm]]
-    
-    title <- paste(
-      unique(df$Step), "Models —",
-      unique(df$Blocks), toupper(unique(df$Response))
-    )
-    
-    subtitle <- if (!all(is.na(df$Partition))) {
-      paste("Covariate set:", unique(df$Partition))
-    } else {
-      "ΔAICc ≤ 2"
-    }
-    
-    SaveAICcPNG(
-      df = df %>% dplyr::select(Model, K, AICc, Delta_AICc, AICcWt),
-      file = file.path(out_dir, paste0("AICc_", nm, ".png")),
-      title = title,
-      subtitle = subtitle
-    )
-  }
-}
-
-
-ExportAICcTables(part_tables, "outputs/tables/aicc_partitioned")
-ExportAICcTables(add_tables,  "outputs/tables/aicc_additive")
-ExportAICcTables(int_tables,  "outputs/tables/aicc_interaction")

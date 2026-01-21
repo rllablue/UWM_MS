@@ -101,7 +101,7 @@ climate_covars_diff <- c("tmax_diff", "tmin_diff", "prcp_diff")
 # New DataFrames #
 
 # Species
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Eastern Meadowlark"
 
 
 # RLL modeling df
@@ -142,7 +142,7 @@ climate_covars_diff
 
 
 # Species-specific Thinned Covariate Sets
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Eastern Meadowlark"
 
 
 factor_covars_reduced <- c("atlas_block", "transition_state")
@@ -151,7 +151,7 @@ stable_covars_all <- c("sr_Diff", "pa_percent")
 
 land_covars_reduced <- c("developed_total_base", 
                          "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-
+                         
                          "wetlands_woody_base", "wetlands_herb_base",
                          
                          "developed_total_diff", "forest_evergreen_diff", 
@@ -167,7 +167,7 @@ covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_cova
 # what promotes det = 0. 
 ### Scaling of covars w/in subsets for relevant normalized values
 
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Eastern Meadowlark"
 
 # Col-RLL
 mod_colabs_rll_z <- mod_data_rll %>%

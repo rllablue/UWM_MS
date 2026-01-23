@@ -425,7 +425,7 @@ climate_covars_reduced_z
 
 effort_covar <- "sr_Diff_z"
 pa_covar <- "pa_percent_z"
-required_covars <- c("sr_Diff_z", "pa_percent_z")
+
 
 
 ### --- STEP 1: COVARIATE PARTITIONED MODELS --- ###
@@ -472,13 +472,11 @@ BuildAdditiveRHS <- function(covariates, required) {
 FitAdditiveModels <- function(response, 
                               data, 
                               covariates, 
-                              required = required_covars,
+                              required = effort_covar,
                               family = binomial,
                               include_null = TRUE) {
   
   # Predictor structure
-  covariates <- unique(covariates)
-  
   rhs_terms <- BuildAdditiveRHS(
     covariates = covariates,
     required = required
@@ -538,8 +536,8 @@ data_dir <- list(
 )
 
 covar_dir <- list(
-  climate = climate_covars_reduced_z,
-  land    = land_covars_reduced_z
+  climate = setdiff(climate_covars_reduced_z, pa_covar),
+  land    = setdiff(land_covars_reduced_z, pa_covar)
 )
 
 
@@ -556,7 +554,7 @@ partitioned_add_models <- lapply(seq_len(nrow(partition_grid)), function(i) {
   FitAdditiveModels(
     response     = row$response,
     data         = data_dir[[key]],
-    covariates   = c(pa_covar, covar_dir[[row$partition]]),
+    covariates   = covar_dir[[row$partition]],
     family       = binomial,
     include_null = TRUE
     
@@ -628,6 +626,7 @@ reference_part_covariates <- lapply(reference_part_models, function(df) {
 
 
 
+
 ### --- STEP 2: GLOBAL MODELS --- ###
 
 ### STEP 2A: Global Additive Models ###
@@ -684,166 +683,128 @@ MergePartitionedCovariates <- function(ref_covariate_list) {
 }
 
 # Apply: to partitioned covar sets
+merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
+
 merged_ref_covariates <- lapply(
-  MergePartitionedCovariates(reference_part_covariates),
-  function(covs) unique(c(required_covars, covs))
+  merged_ref_covariates,
+  function(covs) unique(c(covs, pa_covar))
 )
 
 
-# Apply: add. model build, ref model and covar extraction workflow
-global_add_models <- lapply(names(merged_ref_covariates), function(key) {
-  
-  FitAdditiveModels(
-    response     = strsplit(key, "_")[[1]][2],
-    data         = data_dir[[key]],
-    covariates   = merged_ref_covariates[[key]],
-    family       = binomial,
-    include_null = TRUE
-  )
-})
-
-names(global_add_models) <- names(merged_ref_covariates)
-
-
-top_add_models <- lapply(global_add_models, ExtractTopModels, delta = 2)
-
-reference_add_models <- lapply(top_add_models, ExtractReferenceModel)
-
-reference_add_covariates <- lapply(reference_add_models, function(df) {
-  
-  if (is.null(df) || nrow(df) == 0) return(character(0))
-  ExtractReferenceCovariates(df$Modnames[1])
-  
-})
-
-
-
-
-
-### --- STEP 2B: INTERACTIONS --- ###
-
-### Custom list
 pa_int_covs <- c(
-  "tmax_38yr_z",
-  "wetlands_woody_base_z"
+  "developed_total_base_z", 
+  "forest_deciduous_base_z", 
+  "forest_evergreen_base_z", 
+  "forest_mixed_base_z",
+  "wetlands_woody_base_z", 
+  "wetlands_herb_base_z",
+  "forest_total_diff_z", 
+  "wetlands_total_diff_z"
 )
 
-# Helper: build custom interaction terms (w/ PA)
-BuildPAInteractions <- function(covariates,
-                                pa_var = "pa_percent_z",
-                                pa_int_covs) {
-  
-  if (!pa_var %in% covariates) return(character(0))
-  
-  int_covs <- intersect(covariates, pa_int_covs)
-  int_covs <- setdiff(int_covs, pa_var)
-  
-  paste0(pa_var, ":", int_covs)
-}
 
 
-
-### Helper: Construct global model
-BuildInteractionRHS <- function(covariates,
-                                required = required_covars,
-                                pa_var = "pa_percent_z",
-                                pa_int_covs) {
+BuildGlobalRHS <- function(selected_covariates,
+                           effort = effort_covar,
+                           pa = pa_covar,
+                           pa_int_covs) {
   
-  covariates <- unique(c(covariates, required))
+  # Partition-selected covariates for this block x response
+  selected_covariates <- unique(selected_covariates)
   
-  # Failsafe: ensure PA present
-  if (!pa_var %in% covariates) {
-    stop("pa_percent_z missing from interaction covariates")
-  }
+  # Interaction-eligible covariates that were ALSO selected upstream
+  int_covs <- intersect(selected_covariates, pa_int_covs)
   
-  additive_rhs <- paste(covariates, collapse = " + ")
+  rhs_list <- character(0)
   
-  int_terms <- BuildPAInteractions(
-    covariates   = covariates,
-    pa_var       = pa_var,
-    pa_int_covs  = pa_int_covs
-  )
+  # ---- 1. Additive (no PA unless selected upstream) ----
+  base_main <- unique(c(effort, setdiff(selected_covariates, pa)))
+  rhs_list <- c(rhs_list, paste(base_main, collapse = " + "))
   
-  # additive-only model
-  rhs_set <- additive_rhs
-  
-  # additive + each interaction individually
-  if (length(int_terms) > 0) {
-    rhs_set <- c(
-      rhs_set,
-      paste(additive_rhs, int_terms, sep = " + ")
+  # ---- 2. Additive with PA only if PA was selected ----
+  if (pa %in% selected_covariates) {
+    rhs_list <- c(
+      rhs_list,
+      paste(unique(c(base_main, pa)), collapse = " + ")
     )
   }
   
-  unique(rhs_set)
+  # ---- 3. Interaction models (enforce hierarchy) ----
+  if (length(int_covs) > 0) {
+    for (x in int_covs) {
+      rhs_list <- c(
+        rhs_list,
+        paste(
+          unique(c(base_main, pa, x)),
+          collapse = " + "
+        ) %>%
+          paste(paste0(pa, ":", x), sep = " + ")
+      )
+    }
+  }
+  
+  unique(rhs_list)
 }
 
 
-### Helper: Fit, Rank global and null models
-FitInteractionModels <- function(response,
-                                 data,
-                                 covariates,
-                                 required = required_covars,
-                                 pa_int_covs,
-                                 pa_var = "pa_percent_z",
-                                 family = binomial) {
+
+FitGlobalModels <- function(response,
+                            data,
+                            covariates,
+                            effort = effort_covar,
+                            pa_int_covs,
+                            family = binomial,
+                            include_null = TRUE) {
   
-  rhs_terms <- BuildInteractionRHS(
-    covariates  = covariates,
-    required = required,
-    pa_var      = pa_var,
+  rhs_terms <- BuildGlobalRHS(
+    selected_covariates = covariates,
+    effort = effort,
+    pa = pa_covar,
     pa_int_covs = pa_int_covs
   )
   
-  formulas <- c(
-    list(as.formula(paste(response, "~ 1"))),
-    lapply(rhs_terms, function(rhs) {
-      as.formula(paste(response, "~", rhs))
-    })
-  )
+  formulas <- lapply(rhs_terms, function(rhs) {
+    as.formula(paste(response, "~", rhs))
+  })
+  
+  if (include_null) {
+    formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
+    modnames <- c("NULL", rhs_terms)
+  } else {
+    modnames <- rhs_terms
+  }
   
   models <- lapply(formulas, function(f) {
     glm(f, data = data, family = family)
   })
   
-  modnames <- c("NULL", rhs_terms)
   names(models) <- modnames
   
   aictab(
     cand.set = models,
     modnames = modnames,
-    sort     = TRUE
+    sort = TRUE
   )
 }
 
 
-
-
-# Run selection 
-global_int_models <- lapply(names(reference_add_covariates), function(key) {
+# Apply: to all blocks x response subsets
+global_models <- lapply(names(merged_ref_covariates), function(key) {
   
-  FitInteractionModels(
-    response    = strsplit(key, "_")[[1]][2],
-    data        = data_dir[[key]],
-    covariates  = reference_add_covariates[[key]],
+  FitGlobalModels(
+    response = strsplit(key, "_")[[1]][2],
+    data = data_dir[[key]],
+    covariates = merged_ref_covariates[[key]],
     pa_int_covs = pa_int_covs,
-    family      = binomial
+    family = binomial
   )
 })
 
-names(global_int_models) <- names(reference_add_covariates)
+names(global_models) <- names(merged_ref_covariates)
 
+top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
 
-top_int_models <- lapply(global_int_models, ExtractTopModels, delta = 2)
-
-reference_int_models <- lapply(top_int_models, ExtractReferenceModel)
-
-reference_int_covariates <- lapply(reference_int_models, function(df) {
-  
-  if (is.null(df) || nrow(df) == 0) return(character(0))
-  
-  ExtractReferenceCovariates(df$Modnames[1])
-})
+reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
 
 
 
@@ -876,143 +837,22 @@ ExtractRefFormula <- function(ref_df, response) {
 }
 
 
-final_glm_models <- lapply(names(reference_int_models), function(nm) {
+global_glm_models <- lapply(names(reference_global_models), function(nm) {
   
   # nm format: "DNR_col", "RLL_ext", etc.
   response <- strsplit(nm, "_")[[1]][2]
   
   glm(
-    formula = ExtractRefFormula(reference_int_models[[nm]], response),
+    formula = ExtractRefFormula(reference_global_models[[nm]], response),
     data    = data_dir[[nm]],
     family  = binomial
   )
 })
 
-names(final_glm_models) <- names(reference_int_models)
+names(global_glm_models) <- names(reference_global_models)
 
-final_model_summaries <- lapply(final_glm_models, summary)
-
-
+global_glm_summaries <- lapply(global_glm_models, summary)
 
 
 
-### --- VISUALIZE --- ###
 
-### Formatted, exportable AICc tables for top model sets (deltaAICc < 2) for each 
-# blocks x response subsets at each step.
-
-FormatAICcTable <- function(df) {
-  
-  df %>%
-    mutate(
-      AICc       = round(AICc, 2),
-      Delta_AICc = round(Delta_AICc, 2),
-      AICcWt     = round(AICcWt, 3)
-    ) %>%
-    dplyr::select(
-      Model = Modnames,
-      K,
-      AICc,
-      Delta_AICc,
-      AICcWt
-    )
-}
-
-
-ParseModelName <- function(name) {
-  
-  parts <- strsplit(name, "_")[[1]]
-  
-  if (length(parts) == 3) {
-    # partitioned: response_blocks_partition
-    list(
-      response  = parts[1],
-      blocks    = parts[2],
-      partition = parts[3]
-    )
-  } else if (length(parts) == 2) {
-    # global models: blocks_response
-    list(
-      response  = parts[2],
-      blocks    = parts[1],
-      partition = NA
-    )
-  } else {
-    stop("Unexpected model name format: ", name)
-  }
-}
-
-
-PrepareAICcTables <- function(model_list, step_name) {
-  
-  lapply(names(model_list), function(nm) {
-    
-    meta <- ParseModelName(nm)
-    
-    FormatAICcTable(model_list[[nm]]) %>%
-      mutate(
-        Step      = step_name,
-        Response  = meta$response,
-        Blocks    = meta$blocks,
-        Partition = meta$partition
-      )
-  }) |> setNames(names(model_list))
-}
-
-
-part_tables <- PrepareAICcTables(top_part_models, "Partitioned")
-add_tables  <- PrepareAICcTables(top_add_models,  "Additive")
-int_tables  <- PrepareAICcTables(top_int_models,  "Interaction")
-
-
-
-SaveAICcPNG <- function(df, file, title, subtitle) {
-  
-  gt(df) %>%
-    tab_header(
-      title    = title,
-      subtitle = subtitle
-    ) %>%
-    cols_align("center", everything()) %>%
-    tab_style(
-      style = cell_text(weight = "bold"),
-      locations = cells_column_labels(everything())
-    ) %>%
-    opt_all_caps() %>%
-    opt_table_outline() %>%
-    gtsave(file, expand = 15)
-}
-
-
-ExportAICcTables <- function(tables, out_dir) {
-  
-  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-  
-  for (nm in names(tables)) {
-    
-    df <- tables[[nm]]
-    
-    title <- paste(
-      unique(df$Step), "Models —",
-      unique(df$Blocks), toupper(unique(df$Response))
-    )
-    
-    subtitle <- if (!all(is.na(df$Partition))) {
-      paste("Covariate set:", unique(df$Partition))
-    } else {
-      "ΔAICc ≤ 2"
-    }
-    
-    SaveAICcPNG(
-      df = df %>% dplyr::select(Model, K, AICc, Delta_AICc, AICcWt),
-      file = file.path(out_dir, paste0("AICc_", nm, ".png")),
-      title = title,
-      subtitle = subtitle
-    )
-  }
-}
-
-
-ExportAICcTables(part_tables, "outputs/tables/aicc_partitioned")
-ExportAICcTables(add_tables,  "outputs/tables/aicc_additive")
-ExportAICcTables(int_tables,  "outputs/tables/aicc_interaction")

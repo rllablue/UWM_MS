@@ -6,7 +6,7 @@
 
 # Core
 library(dplyr)
-library(tidyr)
+library(tidyverse)
 library(magrittr)
 library(purrr)
 library(stringr)
@@ -26,6 +26,8 @@ library(rsample)
 library(lme4)
 library(pscl)
 library(AICcmodavg)
+library(MuMIn)
+options(na.action = "na.fail")
 library(arm)
 
 # Visualization
@@ -35,11 +37,17 @@ library(gt)
 library(webshot2)
 
 
-### --- DATAFRAMES --- ###
+### --- DATA --- ###
 
-# Carry-over DataFrames #
-spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") 
-covars_raw_rll <- read.csv("data/summaries/covars_raw_all.csv")
+# Base Data Frames #
+spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") # df
+spp_list <- unique(spp_zf_rll$common_name) # vector
+
+covars_raw_rll <- read.csv("data/summaries/covars_raw_all.csv") # df
+covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
+  mutate(sr_diff = sr_Atlas2 - sr_Atlas1,
+         grass_pasture_crop_base = grassland_base + pasture_crop_base,
+         grass_pasture_crop_diff = grassland_diff + pasture_crop_diff)
 
 wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
 blocks_rll <- wibba_summary_rll$atlas_block # vector
@@ -48,17 +56,41 @@ blocks_dnr <- read_xlsx("data/summaries/CompBlocks_DNR2023.xlsx") # df
 blocks_dnr <- blocks_dnr$atlas_block # vector
 
 
-# SPECIES RICHNESS / EFFORT PROXY 
-covars_raw_rll <- covars_raw_rll %>%
-  mutate(sr_Diff = sr_Atlas2 - sr_Atlas1,
-         grass_pasture_crop_base = grassland_base + pasture_crop_base,
-         grass_pasture_crop_diff = grassland_diff + pasture_crop_diff)
+# Summarize Spp Counts by block
+rll_counts <- spp_zf_rll %>%
+  filter(atlas_block %in% blocks_rll) %>%
+  count(common_name, transition_state) %>%
+  pivot_wider(
+    names_from  = transition_state,
+    values_from = n,
+    names_prefix = "rll_",
+    values_fill = 0
+  )
+
+dnr_counts <- spp_zf_rll %>%
+  filter(atlas_block %in% blocks_dnr) %>%
+  count(common_name, transition_state) %>%
+  pivot_wider(
+    names_from  = transition_state,
+    values_from = n,
+    names_prefix = "dnr_",
+    values_fill = 0
+  )
+
+spp_list_counts <- rll_counts %>%
+  left_join(dnr_counts, by = "common_name") %>%
+  mutate(
+    total_rll = rowSums(dplyr::select(., starts_with("rll_"))),
+    total_dnr = rowSums(dplyr::select(., starts_with("dnr_")))
+  )
 
 
-# Covariate Sets #
+
+
+# Covariates #
 factor_covars_all <- c("atlas_block", "common_name", "alpha_code", "transition_state")
 
-stable_covars_all <- c("lon", "lat", "sr_Diff", "pa_percent")
+stable_covars_all <- c("lon", "lat", "sr_diff", "pa_percent")
 
 land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", 
                      "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
@@ -76,26 +108,9 @@ land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base",
                      "grassland_diff", "pasture_crop_diff", "grass_pasture_crop_diff",
                      "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
 
-land_covars_base <- c("water_open_base", "barren_land_base", "shrub_scrub_base", "grassland_base",
-                      "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
-                      "developed_lower_base", "developed_upper_base", "developed_total_base", 
-                      "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                      "forest_total_base", "pasture_base", "cropland_base", "pasture_crop_base", 
-                      "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base")
-
-land_covars_diff <- c("water_open_diff", "barren_land_diff", "shrub_scrub_diff", "grassland_diff",
-                      "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
-                      "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
-                      "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
-                      "forest_total_diff", "pasture_diff", "cropland_diff", "pasture_crop_diff", 
-                      "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
-
-climate_covars_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
-
-climate_covars_base <- c("tmax_38yr", "tmin_38yr", "prcp_38yr")
-
-climate_covars_diff <- c("tmax_diff", "tmin_diff", "prcp_diff")
-
+climate_covars_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", 
+                        
+                        "tmax_diff", "tmin_diff", "prcp_diff")
 
 
 # New DataFrames #
@@ -117,8 +132,8 @@ mod_data_dnr <- spp_zf_rll %>%
   left_join(covars_raw_rll, by = "atlas_block")
 
 
-write.csv(mod_data_rll, "outputs/data/mod_data_rll.csv", row.names = FALSE)
-write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
+# write.csv(mod_data_rll, "outputs/data/mod_data_rll.csv", row.names = FALSE)
+# write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
 
 
 
@@ -130,24 +145,12 @@ write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
 # correlations, VIF to assess multi-collinearity (alt. approach: PCA &/or CLT)
 # and further thin predictors
 
-# Full covariate sets
-factor_covars_all
-stable_covars_all
-land_covars_all
-land_covars_base
-land_covars_diff
-climate_covars_all
-climate_covars_base
-climate_covars_diff
-
 
 # Species-specific Thinned Covariate Sets
-spp_name <- "Eastern Meadowlark"
-
 
 factor_covars_reduced <- c("atlas_block", "transition_state")
 
-stable_covars_all <- c("sr_Diff", "pa_percent")
+stable_covars_all <- c("sr_diff", "pa_percent")
 
 land_covars_reduced <- c("developed_lower_base",
                          "forest_total_base",
@@ -294,8 +297,8 @@ apply(high_corr1, 1, function(i) cat(rownames(M1)[i[1]], "-", colnames(M1)[i[2]]
 high_corr2 <- which(abs(M2) > 0.7 & abs(M2) < 1, arr.ind = TRUE)
 apply(high_corr2, 1, function(i) cat(rownames(M2)[i[1]], "-", colnames(M2)[i[2]], "r =", M2[i[1],i[2]], "\n"))
 
-high_corr3 <- which(abs(M3) > 0.7 & abs(M3) < 1, arr.ind = TRUE)
-apply(high_corr3, 1, function(i) cat(rownames(M3)[i[1]], "-", colnames(M3)[i[2]], "r =", M3[i[1],i[2]], "\n"))
+# high_corr3 <- which(abs(M3) > 0.7 & abs(M3) < 1, arr.ind = TRUE)
+# apply(high_corr3, 1, function(i) cat(rownames(M3)[i[1]], "-", colnames(M3)[i[2]], "r =", M3[i[1],i[2]], "\n"))
 
 high_corr4 <- which(abs(M4) > 0.7 & abs(M4) < 1, arr.ind = TRUE)
 apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]], "r =", M4[i[1],i[2]], "\n"))
@@ -303,8 +306,8 @@ apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]]
 high_corr5 <- which(abs(M5) > 0.7 & abs(M5) < 1, arr.ind = TRUE)
 apply(high_corr5, 1, function(i) cat(rownames(M5)[i[1]], "-", colnames(M5)[i[2]], "r =", M5[i[1],i[2]], "\n"))
 
-high_corr6 <- which(abs(M6) > 0.7 & abs(M6) < 1, arr.ind = TRUE)
-apply(high_corr6, 1, function(i) cat(rownames(M6)[i[1]], "-", colnames(M6)[i[2]], "r =", M6[i[1],i[2]], "\n"))
+# high_corr6 <- which(abs(M6) > 0.7 & abs(M6) < 1, arr.ind = TRUE)
+# apply(high_corr6, 1, function(i) cat(rownames(M6)[i[1]], "-", colnames(M6)[i[2]], "r =", M6[i[1],i[2]], "\n"))
 
 
 # Correlation Thinned Covariate Sets
@@ -319,7 +322,7 @@ land_covars_reduced <- c("developed_lower_base",
 
 climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
-stable_covars_reduced <- c("sr_Diff", "pa_percent")
+stable_covars_reduced <- c("sr_diff", "pa_percent")
 
 covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
 covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
@@ -368,7 +371,7 @@ land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
 climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 climate_covars_reduced_z <- paste0(climate_covars_reduced, "_z")
 
-stable_covars_reduced # "sr_Diff", "pa_percent"
+stable_covars_reduced # "sr_diff", "pa_percent"
 stable_covars_reduced_z <- paste0(stable_covars_reduced, "_z")
 
 covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
@@ -407,21 +410,32 @@ covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 ### DATA ###
 
-# Model data (responses: col, abs, per)
-mod_colabs_rll_z
-mod_extper_rll_z
-mod_perext_rll_z
-
-mod_colabs_dnr_z
-mod_extper_dnr_z
-mod_perext_dnr_z
-
-# Covariate IDs/vectors
-land_covars_reduced_z
-climate_covars_reduced_z
-
-effort_covar <- "sr_Diff_z"
+effort_covar <- "sr_diff_z"
 pa_covar <- "pa_percent_z"
+
+
+### Create grid data directory of blocks x response subsets for fx lookup
+partition_grid <- expand.grid(
+  response = c("col", "ext", "per"),
+  blocks = c("DNR", "RLL"),
+  partition = c("climate", "land"),
+  stringsAsFactors = FALSE
+)
+
+data_dir <- list(
+  RLL_col = mod_colabs_rll_z,
+  RLL_ext = mod_extper_rll_z,
+  RLL_per = mod_perext_rll_z,
+  
+  DNR_col = mod_colabs_dnr_z,
+  DNR_ext = mod_extper_dnr_z,
+  DNR_per = mod_perext_dnr_z
+)
+
+covar_dir <- list(
+  climate = climate_covars_reduced_z,
+  land    = land_covars_reduced_z
+)
 
 
 
@@ -436,7 +450,7 @@ pa_covar <- "pa_percent_z"
 
 ### Helper: generate all additive predictor combos w/in partitioned covariate sets
 # required = structural effort control variable, PA% as primary effect of interest
-BuildAdditiveRHS <- function(covariates, required) {
+BuildPartitionedRHS <- function(covariates, required) {
   
   covariates <- unique(covariates)
   required   <- unique(required)
@@ -466,15 +480,15 @@ BuildAdditiveRHS <- function(covariates, required) {
 
 
 ### Helper: Fit, rank partitioned candidate models
-FitAdditiveModels <- function(response, 
-                              data, 
-                              covariates, 
-                              required = effort_covar,
-                              family = binomial,
-                              include_null = TRUE) {
+FitPartitionedModels <- function(response, 
+                                 data, 
+                                 covariates, 
+                                 required = effort_covar,
+                                 family = binomial,
+                                 include_null = TRUE) {
   
   # Predictor structure
-  rhs_terms <- BuildAdditiveRHS(
+  rhs_terms <- BuildPartitionedRHS(
     covariates = covariates,
     required = required
   )
@@ -483,12 +497,12 @@ FitAdditiveModels <- function(response,
     as.formula(paste(response, "~", rhs))
   })
   
+  modnames <- rhs_terms
+  
   # Null structure
   if (include_null) {
     formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
     modnames <- c("NULL", rhs_terms)
-  } else {
-    modnames <- rhs_terms
   }
   
   # Fit models
@@ -496,67 +510,25 @@ FitAdditiveModels <- function(response,
     glm(f, data = data, family = family)
   })
   
-  # Identify models 
   names(models) <- modnames
   
-  # AICc ranking
-  aictab(
-    cand.set = models,
-    modnames = modnames,
-    sort = TRUE
-  )
+  MuMIn::model.sel(models, rank = "AICc")
 }
-
-
-### APPLICATION ###
-
-### Automate function application to partitioned climate and land cover models 
-# for each block/response subset simultaneously
-
-### Create data directories for fx lookup
-# Grid containing rows of all response x blocks x partition combos
-partition_grid <- expand.grid(
-  response = c("col", "ext", "per"),
-  blocks = c("DNR", "RLL"),
-  partition = c("climate", "land"),
-  stringsAsFactors = FALSE
-)
-
-data_dir <- list(
-  RLL_col = mod_colabs_rll_z,
-  RLL_ext = mod_extper_rll_z,
-  RLL_per = mod_perext_rll_z,
-  
-  DNR_col = mod_colabs_dnr_z,
-  DNR_ext = mod_extper_dnr_z,
-  DNR_per = mod_perext_dnr_z
-)
-
-covar_dir <- list(
-  climate = setdiff(climate_covars_reduced_z, pa_covar),
-  land    = setdiff(land_covars_reduced_z, pa_covar)
-)
 
 
 # Apply: Index, fit partitions in single loop function
 partitioned_add_models <- lapply(seq_len(nrow(partition_grid)), function(i) {
   
-  # Extract ith row of partition_grid (unique response x block set x covariate partition combo) 
   row <- partition_grid[i, ]
-  
-  # Look-up key for named blocks x response combo
   key <- paste(row$blocks, row$response, sep = "_")
   
-  # Fit, rank add models w/in each partition
-  FitAdditiveModels(
+  FitPartitionedModels(
     response     = row$response,
     data         = data_dir[[key]],
     covariates   = covar_dir[[row$partition]],
     family       = binomial,
     include_null = TRUE
-    
   )
-  
 })
 
 # Names in AICc table
@@ -567,49 +539,53 @@ names(partitioned_add_models) <- with(
 
 
 ### Helper: Extract top models (threshold: delta < 2)
-ExtractTopModels <- function(aicc_table, delta = 2, drop_null = TRUE) {
+ExtractTopModels <- function(model_sel, delta = 2, drop_null = TRUE) {
   
-  df <- as.data.frame(aicc_table)
-  
-  df <- df[df$Delta_AICc <= delta, ]
+  df <- as.data.frame(model_sel)
+  df$Modnames <- rownames(df)
+  df <- df[df$delta <= delta, , drop = FALSE]
   
   if (drop_null) {
-    df <- df[df$Modnames != "NULL",]
+    df <- df[df$Modnames != "NULL", , drop = FALSE]
   }
   
   df
-  
 }
+
 
 # Apply: threshold to all candidate models 
 top_part_models <- lapply(partitioned_add_models, ExtractTopModels, delta = 2)
 
 
-### Helper: Extract [REFERENCE] model [delta = 0]
-ExtractReferenceModel <- function(aicc_table) {
+
+### Helper: Extract [REFERENCE] model [delta = lowest value]
+ExtractReferenceModel <- function(model_sel_df) {
   
-  df <- as.data.frame(aicc_table)
+  if (nrow(model_sel_df) == 0) return(model_sel_df)
   
-  ref <- df[df$Delta_AICc == 0, ]
+  min_delta <- min(model_sel_df$delta)
+  ref <- model_sel_df[model_sel_df$delta == min_delta, , drop = FALSE]
   
   if (nrow(ref) != 1) {
-    warning("Expected [1] reference model, found ", nrow(ref))
+    warning(
+      "Expected 1 reference model, found ", nrow(ref),
+      ". Using first."
+    )
+    ref <- ref[1, , drop = FALSE]
   }
   
   ref
-  
 }
+
 
 # Apply: reference model extraction
 reference_part_models <- lapply(top_part_models, ExtractReferenceModel)
-
 
 ### Helper: Extract [REFERENCE] model covariates
 ExtractReferenceCovariates <- function(model_string) {
   
   strsplit(model_string, "\\+")[[1]] %>%
     trimws
-  
 }
 
 # Apply: covariate extraction from ref model
@@ -618,17 +594,9 @@ reference_part_covariates <- lapply(reference_part_models, function(df) {
   if (nrow(df) == 0) return(character(0))
   
   ExtractReferenceCovariates(df$Modnames[1])
-  
 })
 
 
-
-### --- STEP 2: GLOBAL MODELS --- ###
-
-### STEP 2A: Global Additive Models ###
-
-### Combine climate, land covars lists from partitioned models into single covar list/pool for 
-# new additive mod selection process; find new ref model to carry into interaction step (2B).
 
 ### Helper: Merge partitioned ref mod climate, land covar lists
 MergePartitionedCovariates <- function(ref_covariate_list) {
@@ -646,13 +614,9 @@ MergePartitionedCovariates <- function(ref_covariate_list) {
   ) 
   
   colnames(components_dir) <- c("response", "blocks", "partition")
-  
   names_dir <- cbind(names_dir, components_dir)
-  
-  # Assign names to blocks x response subset combos
   combos <- unique(names_dir[, c("blocks", "response")])
   
-  # Merge covariate lists for blocks x response combos
   merged <- lapply(seq_len(nrow(combos)), function(i) {
     
     blocks <- combos$blocks[i]
@@ -667,79 +631,67 @@ MergePartitionedCovariates <- function(ref_covariate_list) {
       warning("No covariates for ", blocks, "_", resp)
       return(character(0))
     }
-    
     unique(covs)
-    
   })
-  
   names(merged) <- paste(combos$blocks, combos$response, sep = "_")
   
   merged
-  
 }
+
 
 # Apply: to partitioned covar sets
 merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
 
+
+
+
+### --- STEP 2: GLOBAL MODELS --- ###
+
+### Combine climate, land covars lists from partitioned models into single covar list/pool for 
+# new additive mod selection process; find new ref model to carry into interaction step (2B).
+
+effort_covar <- "sr_diff_z"
+pa_covar <- "pa_percent_z"
+
+
 merged_ref_covariates <- lapply(
   merged_ref_covariates,
-  function(covs) unique(c(covs, pa_covar))
-)
-
-
-pa_int_covs <- c(
-  "tmax_38yr_z",
-  "tmax_diff_z",
-  "tmin_diff_z",
-  "developed_lower_base_z",
-  "pasture_crop_base_z",
-  "grassland_base_z",
-  "pasture_crop_diff_z",
-  "grassland_diff_z"
+  function(covs) unique(c(covs, pa_covar)) # add in PA to pool in non-forced manner
 )
 
 
 
-BuildGlobalRHS <- function(selected_covariates,
-                           effort = effort_covar,
-                           pa = pa_covar,
-                           pa_int_covs) {
+BuildGlobalRHS <- function(covariates,
+                           forced = effort_covar,
+                           pa = pa_covar) {
   
-  # Partition-selected covariates for this block x response
-  selected_covariates <- unique(selected_covariates)
+  covariates <- unique(covariates)
   
-  # Interaction-eligible covariates that were ALSO selected upstream
-  int_covs <- intersect(selected_covariates, pa_int_covs)
+  # Ensure forced is present
+  forced <- intersect(forced, covariates)
   
-  rhs_list <- character(0)
+  # Optional = everything except forced
+  optional <- setdiff(covariates, forced)
   
-  # ---- 1. Additive (no PA unless selected upstream) ----
-  base_main <- unique(c(effort, setdiff(selected_covariates, pa)))
-  rhs_list <- c(rhs_list, paste(base_main, collapse = " + "))
+  rhs <- character(0)
   
-  # ---- 2. Additive with PA only if PA was selected ----
-  if (pa %in% selected_covariates) {
-    rhs_list <- c(
-      rhs_list,
-      paste(unique(c(base_main, pa)), collapse = " + ")
+  # Forced-only model
+  rhs <- c(rhs, paste(forced, collapse = " + "))
+  
+  # Forced + subsets of optional
+  if (length(optional) > 0) {
+    rhs_optional <- unlist(
+      lapply(seq_along(optional), function(k) {
+        combn(optional, k, FUN = function(x) {
+          paste(c(forced, x), collapse = " + ")
+        })
+      }),
+      use.names = FALSE
     )
+    rhs <- c(rhs, rhs_optional)
   }
   
-  # ---- 3. Interaction models (enforce hierarchy) ----
-  if (length(int_covs) > 0) {
-    for (x in int_covs) {
-      rhs_list <- c(
-        rhs_list,
-        paste(
-          unique(c(base_main, pa, x)),
-          collapse = " + "
-        ) %>%
-          paste(paste0(pa, ":", x), sep = " + ")
-      )
-    }
-  }
-  
-  unique(rhs_list)
+  unique(rhs)
 }
 
 
@@ -747,60 +699,60 @@ BuildGlobalRHS <- function(selected_covariates,
 FitGlobalModels <- function(response,
                             data,
                             covariates,
-                            effort = effort_covar,
-                            pa_int_covs,
                             family = binomial,
                             include_null = TRUE) {
   
   rhs_terms <- BuildGlobalRHS(
-    selected_covariates = covariates,
-    effort = effort,
-    pa = pa_covar,
-    pa_int_covs = pa_int_covs
+    covariates = covariates,
+    forced     = effort_covar,
+    pa         = pa_covar
   )
   
-  formulas <- lapply(rhs_terms, function(rhs) {
-    as.formula(paste(response, "~", rhs))
-  })
+  models <- list()
   
+  # NULL model
   if (include_null) {
-    formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
-    modnames <- c("NULL", rhs_terms)
-  } else {
-    modnames <- rhs_terms
+    models[["NULL"]] <- glm(
+      as.formula(paste(response, "~ 1")),
+      data = data,
+      family = family
+    )
   }
   
-  models <- lapply(formulas, function(f) {
-    glm(f, data = data, family = family)
-  })
+  # Additive models
+  for (rhs in rhs_terms) {
+    models[[rhs]] <- glm(
+      as.formula(paste(response, "~", rhs)),
+      data = data,
+      family = family
+    )
+  }
   
-  names(models) <- modnames
-  
-  aictab(
-    cand.set = models,
-    modnames = modnames,
-    sort = TRUE
-  )
+  model.sel(models)
 }
 
 
-# Apply: to all blocks x response subsets
+
+
 global_models <- lapply(names(merged_ref_covariates), function(key) {
   
   FitGlobalModels(
-    response = strsplit(key, "_")[[1]][2],
-    data = data_dir[[key]],
+    response   = strsplit(key, "_")[[1]][2],
+    data       = data_dir[[key]],
     covariates = merged_ref_covariates[[key]],
-    pa_int_covs = pa_int_covs,
-    family = binomial
+    family     = binomial
   )
 })
 
 names(global_models) <- names(merged_ref_covariates)
 
 top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
-
 reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
+
+
+
+
+
 
 
 ### --- STEP 3: MODELING --- ###
@@ -847,4 +799,3 @@ global_glm_models <- lapply(names(reference_global_models), function(nm) {
 names(global_glm_models) <- names(reference_global_models)
 
 global_glm_summaries <- lapply(global_glm_models, summary)
-

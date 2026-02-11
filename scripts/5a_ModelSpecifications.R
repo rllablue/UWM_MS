@@ -39,7 +39,7 @@ library(webshot2)
 
 ### --- DATA --- ###
 
-# Base Data Frames #
+# Upload, Wrangle Data #
 spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") # df
 spp_list <- unique(spp_zf_rll$common_name) # vector
 
@@ -48,6 +48,11 @@ covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
   mutate(sr_diff = sr_Atlas2 - sr_Atlas1,
          grass_pasture_crop_base = grassland_base + pasture_crop_base,
          grass_pasture_crop_diff = grassland_diff + pasture_crop_diff)
+covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
+  mutate(across(
+    .cols = -atlas_block,
+    .fns = ~ as.numeric(scale(.))
+  ))
 
 wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
 blocks_rll <- wibba_summary_rll$atlas_block # vector
@@ -56,7 +61,113 @@ blocks_dnr <- read_xlsx("data/summaries/CompBlocks_DNR2023.xlsx") # df
 blocks_dnr <- blocks_dnr$atlas_block # vector
 
 
-# Summarize Spp Counts by block
+# Create Guilds #
+spp_guilds <- tibble(
+  common_name = unique(spp_zf_rll$common_name),
+  guild = NA_character_
+)
+
+write.csv(species_guilds, "data/summaries/species_guilds.csv", row.names = FALSE)
+spp_guilds <- read.csv("data/summaries/species_guilds.csv")
+
+spp_zf_rll <- spp_zf_rll %>%
+  left_join(spp_guilds, by = "common_name")
+
+
+
+# FULL MODELING DF #
+# all zero-filled species, z-scaled covariate data
+mod_data_all <- spp_zf_rll %>%
+  left_join(covars_z_rll, by = "atlas_block")
+
+# write.csv(mod_data_all, "outputs/data/mod_data_all.csv", row.names = FALSE)
+
+
+
+# SPECIES-SPECIFIC DATAFRAMES #
+# Helper: Build filtered modeling dataframes
+
+### Separate data into bins where A2 detection is either 1 or 0; not necessarily
+# in precise probabilities between col, per, abs, ext, but more what promotes
+# 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
+# what promotes det = 0. 
+### Scaling of covars w/in subsets for relevant normalized values
+
+BuildSppRespDfs <- function(data,
+                            species,
+                            block_vector = NULL,
+                            state_pairs,
+                            response_name,
+                            response_one) {
+  
+  df <- data %>%
+    filter(common_name == species)
+  
+  if (!is.null(block_vector)) {
+    df <- df %>% filter(atlas_block %in% block_vector)
+  }
+  
+  df %>%
+    filter(transition_state %in% state_pairs) %>%
+    mutate(
+      !!reponse_name := ifelse(transition_state == response_one, 1, 0)
+    )
+}
+
+
+
+
+# Apply: create species- and state-specific dataframes
+
+# Species to Model #
+spp_name <- "Ruby-crowned Kinglet"
+
+
+# Col-RLL
+mod_colabs_rll <- BuildSppRespDfs(
+  data = mod_data_all,
+  species = spp_name,
+  block_vector = blocks_rll,
+  state_pairs = c("Colonization", "Absence"),
+  response_name = "col",
+  response_one = "Colonization"
+)
+
+# Ext-RLL
+mod_extper_rll <- BuildSppRespDfs(
+  data = mod_data_all,
+  species = spp_name,
+  block_vector = blocks_rll,
+  state_pairs = c("Extinction", "Persistence"),
+  response_name = "ext",
+  response_one = "Extinction"
+)
+
+
+# Col-DNR
+mod_colabs_dnr <- BuildSppRespDfs(
+  data = mod_data_all,
+  species = spp_name,
+  block_vector = blocks_dnr,
+  state_pairs = c("Colonization", "Absence"),
+  response_name = "col",
+  response_one = "Colonization"
+)
+
+# Ext-DNR
+mod_extper_dnr <- BuildSppRespDfs(
+  data = mod_data_all,
+  species = spp_name,
+  block_vector = blocks_dnr,
+  state_pairs = c("Extinction", "Persistence"),
+  response_name = "ext",
+  response_one = "Extinction"
+)
+
+
+
+# DATA SUMMARIES #
+### Counts of each response type for each species (247) and block set (3337, 858)
 rll_counts <- spp_zf_rll %>%
   filter(atlas_block %in% blocks_rll) %>%
   count(common_name, transition_state) %>%
@@ -87,7 +198,11 @@ spp_list_counts <- rll_counts %>%
 
 
 
-# Covariates #
+
+
+### COVARIATE WRANGLING ###
+
+# All Covariates #
 factor_covars_all <- c("atlas_block", "common_name", "alpha_code", "transition_state")
 
 stable_covars_all <- c("lon", "lat", "sr_diff", "pa_percent")
@@ -113,52 +228,43 @@ climate_covars_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr",
                         "tmax_diff", "tmin_diff", "prcp_diff")
 
 
+### Habitat guilds to bin landcover covariates
 
-##############################  GUILD-BASED COVARIATE SETS ######################
 
 
-grass_guild_all
-
-forest_guild_all
+forest
 
 wetland
 
-riparian
-
 generalist
+
+grassland
 
 water
 
 
+boreal
+wetgrass
 
 
 
 
-#################################################################################
 
 
 
 
-# MODELING DATA FRAMES #
-
-# Species to Model #
-spp_name <- "Ruby-crowned Kinglet"
 
 
-# RLL blocks modeling df
-mod_data_rll <- spp_zf_rll %>%
-  filter(common_name == spp_name) %>%
-  left_join(covars_raw_rll, by = "atlas_block")
-
-# DNR blocks modeling df
-mod_data_dnr <- spp_zf_rll %>%
-  filter(atlas_block %in% blocks_dnr, 
-         common_name == spp_name) %>%  
-  left_join(covars_raw_rll, by = "atlas_block")
 
 
-# write.csv(mod_data_rll, "outputs/data/mod_data_rll.csv", row.names = FALSE)
-# write.csv(mod_data_dnr, "outputs/data/mod_data_dnr.csv", row.names = FALSE)
+
+
+
+
+
+
+
+
 
 
 
@@ -170,13 +276,6 @@ mod_data_dnr <- spp_zf_rll %>%
 # on a species-, state-specific basis, ie. within-group reduction; run pairwise 
 # correlations, VIF to assess multi-collinearity (alt. approach: PCA &/or CLT)
 # and further thin predictors
-
-# Full covariate sets
-factor_covars_all
-stable_covars_all
-land_covars_all
-climate_covars_all
-
 
 
 # Species-specific Thinned Covariate Sets
@@ -194,103 +293,11 @@ land_covars_reduced <- c("developed_total_base",
 covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
 
 
-# State-specific Covariate Sets
-### Separate data into bins where A2 detection is either 1 or 0; not necessarily
-# in precise probabilities between colo, pers, abs, ext, but more what promotes
-# 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
-# what promotes det = 0. 
-### Scaling of covars w/in subsets for relevant normalized values
-
-# Col-RLL
-mod_colabs_rll_z <- mod_data_rll %>%
-  filter(transition_state %in% c("Colonization", "Absence")) %>% # filter by state
-  dplyr::select(all_of(factor_covars_reduced), # select numeric, factor covars
-                all_of(covars_numeric_reduced)) %>%
-  mutate(across( # scale only numeric covars
-    .cols = all_of(covars_numeric_reduced),
-    .fns = ~ as.numeric(scale(.)),
-    .names = "{.col}_z"
-  )) %>%
-  mutate(col = ifelse(transition_state == "Colonization", 1, 0)) %>% # binomial response variable
-  dplyr::select(all_of(factor_covars_reduced), # columns to keep
-                ends_with("_z"),
-                col)
-
-# Ext-RLL
-mod_extper_rll_z <- mod_data_rll %>%
-  filter(transition_state %in% c("Extinction", "Persistence")) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                all_of(covars_numeric_reduced)) %>%
-  mutate(across(
-    .cols = all_of(covars_numeric_reduced),
-    .fns = ~ as.numeric(scale(.)),
-    .names = "{.col}_z"
-  )) %>%
-  mutate(ext = ifelse(transition_state == "Extinction", 1, 0)) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                ends_with("_z"),
-                ext)
-
-# Per-RLL
-mod_perext_rll_z <- mod_data_rll %>%
-  filter(transition_state %in% c("Persistence", "Extinction")) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                all_of(covars_numeric_reduced)) %>%
-  mutate(across(
-    .cols = all_of(covars_numeric_reduced),
-    .fns = ~ as.numeric(scale(.)),
-    .names = "{.col}_z"
-  )) %>%
-  mutate(per = ifelse(transition_state == "Persistence", 1, 0)) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                ends_with("_z"),
-                per)
 
 
-# Col-DNR
-mod_colabs_dnr_z <- mod_data_dnr %>%
-  filter(transition_state %in% c("Colonization", "Absence")) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                all_of(covars_numeric_reduced)) %>%
-  mutate(across(
-    .cols = all_of(covars_numeric_reduced),
-    .fns = ~ as.numeric(scale(.)),
-    .names = "{.col}_z"
-  )) %>%
-  mutate(col = ifelse(transition_state == "Colonization", 1, 0)) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                ends_with("_z"),
-                col)
 
-# Ext-DNR
-mod_extper_dnr_z <- mod_data_dnr %>%
-  filter(transition_state %in% c("Extinction", "Persistence")) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                all_of(covars_numeric_reduced)) %>%
-  mutate(across(
-    .cols = all_of(covars_numeric_reduced),
-    .fns = ~ as.numeric(scale(.)),
-    .names = "{.col}_z"
-  )) %>%
-  mutate(ext = ifelse(transition_state == "Extinction", 1, 0)) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                ends_with("_z"),
-                ext)
 
-# Per-DNR
-mod_perext_dnr_z <- mod_data_dnr %>%
-  filter(transition_state %in% c("Persistence", "Extinction")) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                all_of(covars_numeric_reduced)) %>%
-  mutate(across(
-    .cols = all_of(covars_numeric_reduced),
-    .fns = ~ as.numeric(scale(.)),
-    .names = "{.col}_z"
-  )) %>%
-  mutate(per = ifelse(transition_state == "Persistence", 1, 0)) %>%
-  dplyr::select(all_of(factor_covars_reduced),
-                ends_with("_z"),
-                per)
+
 
 
 # CORRELATIONS, COLLINEARITY # 

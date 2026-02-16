@@ -62,12 +62,12 @@ blocks_dnr <- blocks_dnr$atlas_block # vector
 
 
 # Create Guilds #
-spp_guilds <- tibble(
-  common_name = unique(spp_zf_rll$common_name),
-  guild = NA_character_
-)
+# spp_guilds <- tibble(
+#  common_name = unique(spp_zf_rll$common_name),
+#  guild = NA_character_
+#)
 
-write.csv(species_guilds, "data/summaries/species_guilds.csv", row.names = FALSE)
+#write.csv(spp_guilds, "data/summaries/species_guilds.csv", row.names = FALSE)
 spp_guilds <- read.csv("data/summaries/species_guilds.csv")
 
 spp_zf_rll <- spp_zf_rll %>%
@@ -79,20 +79,31 @@ spp_zf_rll <- spp_zf_rll %>%
 # all zero-filled species, z-scaled covariate data
 mod_data_all <- spp_zf_rll %>%
   left_join(covars_z_rll, by = "atlas_block")
-
 # write.csv(mod_data_all, "outputs/data/mod_data_all.csv", row.names = FALSE)
 
 
 
-# SPECIES-SPECIFIC DATAFRAMES #
-# Helper: Build filtered modeling dataframes
+#####################
+### MODELING DATA ###
+#####################
+
+# FULL DATASET #
+mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
+
+
+# SPECIES-RESPONSE SUBSETTING #
 
 ### Separate data into bins where A2 detection is either 1 or 0; not necessarily
 # in precise probabilities between col, per, abs, ext, but more what promotes
 # 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
-# what promotes det = 0. 
+# what promotes det = 0. Colonization = col + abs data, Extinction = ext + pre data
 ### Scaling of covars w/in subsets for relevant normalized values
 
+# Species to model
+spp_name <- "Ruby-crowned Kinglet"
+
+
+# Helper: Build filtered modeling dfs
 BuildSppRespDfs <- function(data,
                             species,
                             block_vector = NULL,
@@ -110,21 +121,17 @@ BuildSppRespDfs <- function(data,
   df %>%
     filter(transition_state %in% state_pairs) %>%
     mutate(
-      !!reponse_name := ifelse(transition_state == response_one, 1, 0)
+      !!response_name := ifelse(transition_state == response_one, 1, 0)
     )
 }
 
 
 
 
-# Apply: create species- and state-specific dataframes
-
-# Species to Model #
-spp_name <- "Ruby-crowned Kinglet"
-
+# Apply: create species-state-specific dfs
 
 # Col-RLL
-mod_colabs_rll <- BuildSppRespDfs(
+mod_col_rll <- BuildSppRespDfs(
   data = mod_data_all,
   species = spp_name,
   block_vector = blocks_rll,
@@ -134,7 +141,7 @@ mod_colabs_rll <- BuildSppRespDfs(
 )
 
 # Ext-RLL
-mod_extper_rll <- BuildSppRespDfs(
+mod_ext_rll <- BuildSppRespDfs(
   data = mod_data_all,
   species = spp_name,
   block_vector = blocks_rll,
@@ -145,7 +152,7 @@ mod_extper_rll <- BuildSppRespDfs(
 
 
 # Col-DNR
-mod_colabs_dnr <- BuildSppRespDfs(
+mod_col_dnr <- BuildSppRespDfs(
   data = mod_data_all,
   species = spp_name,
   block_vector = blocks_dnr,
@@ -155,7 +162,7 @@ mod_colabs_dnr <- BuildSppRespDfs(
 )
 
 # Ext-DNR
-mod_extper_dnr <- BuildSppRespDfs(
+mod_ext_dnr <- BuildSppRespDfs(
   data = mod_data_all,
   species = spp_name,
   block_vector = blocks_dnr,
@@ -200,65 +207,168 @@ spp_list_counts <- rll_counts %>%
 
 
 
-### COVARIATE WRANGLING ###
+### COVARIATES ###
 
-# All Covariates #
-factor_covars_all <- c("atlas_block", "common_name", "alpha_code", "transition_state")
+# FULL DATASET #
+factor_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
 
-stable_covars_all <- c("lon", "lat", "sr_diff", "pa_percent")
+stable_covs_all <- c("lon", "lat", "sr_diff", "pa_percent")
 
-land_covars_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", 
-                     "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
-                     "developed_lower_base", "developed_upper_base", "developed_total_base", 
-                     "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                     "forest_total_base", "pasture_base", "cropland_base", 
-                     "grassland_base", "pasture_crop_base", "grass_pasture_crop_base",
-                     "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
+land_covs_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", # base year values
+                    "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
+                    "developed_lower_base", "developed_upper_base", "developed_total_base", 
+                    "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
+                    "forest_total_base", "pasture_base", "cropland_base", 
+                    "grassland_base", "pasture_crop_base", "grass_pasture_crop_base",
+                    "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
                      
-                     "water_open_diff", "barren_land_diff", "shrub_scrub_diff", 
-                     "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
-                     "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
-                     "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
-                     "forest_total_diff", "pasture_diff", "cropland_diff", 
-                     "grassland_diff", "pasture_crop_diff", "grass_pasture_crop_diff",
-                     "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
+                    "water_open_diff", "barren_land_diff", "shrub_scrub_diff", # change values
+                    "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
+                    "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
+                    "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
+                    "forest_total_diff", "pasture_diff", "cropland_diff", 
+                    "grassland_diff", "pasture_crop_diff", "grass_pasture_crop_diff",
+                    "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
 
-climate_covars_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", 
+climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
                         
-                        "tmax_diff", "tmin_diff", "prcp_diff")
+                      "tmax_diff", "tmin_diff", "prcp_diff") # change values
+
+
+
+### COVARIATE SUBSETS ###
+
+### ECOLOGICAL FILTERS ###
+### Habitat guilds to bin land cover covariates
+
+# Inputs
+guild_key <- list(
+  
+  forest = c("developed_lower_base", "grass_pasture_crop_base", "shrub_scrub_base", 
+              "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+              "wetlands_woody_base", "wetlands_herb_base",
+              
+              "developed_total_diff", "forest_total_diff", "wetlands_total_diff"),
+  
+  grass = c("shrub_scrub_base", "developed_lower_base", 
+            "forest_total_base","grassland_base", "pasture_crop_base", 
+               
+            "developed_total_diff", "grassland_diff", "pasture_crop_diff"),
+  
+  marsh = c("water_open_base", "shrub_scrub_base", "grass_pasture_crop_base",
+            "developed_lower_base", "forest_total_base", 
+            "wetlands_woody_base", "wetlands_herb_base",
+               
+            "developed_total_diff", "grass_pasture_crop_diff", "wetlands_total_diff"), 
+  
+  water = c("barren_land_base", "water_open_base", "developed_total_base",
+            "grass_pasture_crop_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+            "wetlands_woody_base", "wetlands_herb_base",
+            
+            "water_open_diff", "developed_total_diff", "forest_total_diff", 
+            "grass_pasture_crop_diff", "wetlands_total_diff"),
+
+  
+  general = c("barren_land_base", "water_open_base", "developed_total_base",
+              "forest_total_base", "grass_pasture_crop_base", "wetlands_total_base",
+                 
+              "developed_total_diff", "forest_total_diff", 
+              "grass_pasture_crop_diff", "wetlands_total_diff"),
 
+)
 
-### Habitat guilds to bin landcover covariates
 
+GetGuildCovs <- function(species_name, data, guild_map) {
+  guild_value <- data %>%
+    filter(common_name == species_name) %>%
+    distinct(guild) %>%
+    pull(grid)
+  
+  if (length(guild_value) == 0) {
+    stop("Species lacks guild assignment.")
+  }
+  
+  if (!guild_value %in% names(guild_map)) {
+    stop("Guild not found in key.")
+  }
+  
+  guild_map[[guild_value]]
+}
 
 
-forest
+# Outputs
+factor_covs_reduced <- c("atlas_block", "transition_state")
+stable_covs_reduced <- c("sr_diff", "pa_percent")
+land_covs_reduced <- GetGuildCovs(spp_name, mod_data_all, guild_key)
+climate_covs_all <- climate_covs_all
 
-wetland
+numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_all)
 
-generalist
 
-grassland
 
-water
 
+### STATISTICAL FILTERS ### 
 
-boreal
-wetgrass
+# Helper: identify correlated predictors
+GetHighCorrs <- function(data, covs, threshold = 0.7) {
+  
+  covs <- covs[sapply(data[, covs, drop = FALSE], function(x) # ignore covs w/ sd = 0
+    sd(x, na.rm = TRUE) > 0)]
+  
+  pc <- cor(data[, covs], use = "pairwise.complete.obs")
+  
+  idx <- which(abs(pc) > threshold & abs(pc) < 1, arr.ind = TRUE)
+  
+  if (length(idx) == 0) {
+    message("No corrs above threshold.")
+  } else {
+    apply(idx, 1, function(i)
+    cat(rownames(pc)[i[1]], "-", colnames(pc)[i[2]],
+        "r =", pc[i[1], i[2]], "\n")
+    )
+  }
+  
+  invisible(pc)
+}
 
+corrs1 <- GetHighCorrs(mod_col_rll, numeric_covs_reduced)
+corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
+corrs3 <- GetHighCorrs(mod_col_dnr, numeric_covs_reduced)
+corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 
+corrs1
+corrs2
+corrs3
+corrs4
 
 
 
 
+# Pairwise Correlations #
+pc1 <- cor(mod_col_rll[, numeric_covs_reduced], use = "pairwise.complete.obs")
+pc2 <- cor(mod_ext_rll[, numeric_covs_reduced], use = "pairwise.complete.obs")
 
+pc3 <- cor(mod_col_dnr[, numeric_covs_reduced], use = "pairwise.complete.obs")
+pc4 <- cor(mod_ext_dnr[, numeric_covs_reduced], use = "pairwise.complete.obs")
 
 
+# corrplot::corrplot(pc1, method = "color", tl.cex = 0.7, number.cex = 0.6)
+# corrplot::corrplot(pc2, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
+# corrplot::corrplot(pc3, method = "color", tl.cex = 0.7, number.cex = 0.6)
+# corrplot::corrplot(pc4, method = "color", tl.cex = 0.7, number.cex = 0.6)
 
+corrs1 <- which(abs(pc1) > 0.7 & abs(pc1) < 1, arr.ind = TRUE)
+apply(corrs1, 1, function(i) cat(rownames(pc1)[i[1]], "-", colnames(pc1)[i[2]], "r =", pc1[i[1],i[2]], "\n"))
 
+corrs2 <- which(abs(pc2) > 0.7 & abs(pc2) < 1, arr.ind = TRUE)
+apply(corrs2, 1, function(i) cat(rownames(pc2)[i[1]], "-", colnames(pc2)[i[2]], "r =", pc2[i[1],i[2]], "\n"))
 
+corrs3 <- which(abs(pc3) > 0.7 & abs(pc3) < 1, arr.ind = TRUE)
+apply(corrs3, 1, function(i) cat(rownames(pc3)[i[1]], "-", colnames(pc3)[i[2]], "r =", pc3[i[1],i[2]], "\n"))
 
+corrs4 <- which(abs(pc4) > 0.7 & abs(pc4) < 1, arr.ind = TRUE)
+apply(corrs4, 1, function(i) cat(rownames(pc4)[i[1]], "-", colnames(pc4)[i[2]], "r =", pc4[i[1],i[2]], "\n"))
 
 
 
@@ -267,131 +377,35 @@ wetgrass
 
 
 
-
-
-### -- COVARIATE THINNING --- ###
-
-# PRE-SCREENING #
-### Screen for biologically relevant covariates (for landcover and climate)
-# on a species-, state-specific basis, ie. within-group reduction; run pairwise 
-# correlations, VIF to assess multi-collinearity (alt. approach: PCA &/or CLT)
-# and further thin predictors
-
-
-# Species-specific Thinned Covariate Sets
-
-factor_covars_reduced <- c("atlas_block", "transition_state")
-
-stable_covars_all <- c("sr_diff", "pa_percent")
-
-land_covars_reduced <- c("developed_total_base",
-                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_woody_base", "wetlands_herb_base",
-                         
-                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
-
-covars_numeric_reduced <- c(stable_covars_all, land_covars_reduced, climate_covars_all)
-
-
-
-
-
-
-
-
-
-# CORRELATIONS, COLLINEARITY # 
-
-# Pairwise Correlations
-covar_corrs_colabs_rll <- grep("_z$", names(mod_colabs_rll_z), value = TRUE)
-covar_corrs_extper_rll <- grep("_z$", names(mod_extper_rll_z), value = TRUE)
-covar_corrs_perext_rll <- grep("_z$", names(mod_perext_rll_z), value = TRUE)
-
-covar_corrs_colabs_dnr <- grep("_z$", names(mod_colabs_dnr_z), value = TRUE)
-covar_corrs_extper_dnr <- grep("_z$", names(mod_extper_dnr_z), value = TRUE)
-covar_corrs_perext_dnr <- grep("_z$", names(mod_perext_rll_z), value = TRUE)
-
-
-M1 <- cor(mod_colabs_rll_z[, covar_corrs_colabs_rll], use = "pairwise.complete.obs")
-M2 <- cor(mod_extper_rll_z[, covar_corrs_extper_rll], use = "pairwise.complete.obs")
-M3 <- cor(mod_perext_rll_z[, covar_corrs_perext_rll], use = "pairwise.complete.obs")
-
-M4 <- cor(mod_colabs_dnr_z[, covar_corrs_colabs_dnr], use = "pairwise.complete.obs")
-M5 <- cor(mod_extper_dnr_z[, covar_corrs_extper_dnr], use = "pairwise.complete.obs")
-M6 <- cor(mod_perext_dnr_z[, covar_corrs_perext_rll], use = "pairwise.complete.obs")
-
-
-# corrplot::corrplot(M1, method = "color", tl.cex = 0.7, number.cex = 0.6)
-# corrplot::corrplot(M2, method = "color", tl.cex = 0.7, number.cex = 0.6)
-# corrplot::corrplot(M3, method = "color", tl.cex = 0.7, number.cex = 0.6)
-
-# corrplot::corrplot(M4, method = "color", tl.cex = 0.7, number.cex = 0.6)
-# corrplot::corrplot(M5, method = "color", tl.cex = 0.7, number.cex = 0.6)
-# corrplot::corrplot(M6, method = "color", tl.cex = 0.7, number.cex = 0.6)
-
-
-high_corr1 <- which(abs(M1) > 0.7 & abs(M1) < 1, arr.ind = TRUE) # list out high correlation pairs
-apply(high_corr1, 1, function(i) cat(rownames(M1)[i[1]], "-", colnames(M1)[i[2]], "r =", M1[i[1],i[2]], "\n"))
-
-high_corr2 <- which(abs(M2) > 0.7 & abs(M2) < 1, arr.ind = TRUE)
-apply(high_corr2, 1, function(i) cat(rownames(M2)[i[1]], "-", colnames(M2)[i[2]], "r =", M2[i[1],i[2]], "\n"))
-
-# high_corr3 <- which(abs(M3) > 0.7 & abs(M3) < 1, arr.ind = TRUE)
-# apply(high_corr3, 1, function(i) cat(rownames(M3)[i[1]], "-", colnames(M3)[i[2]], "r =", M3[i[1],i[2]], "\n"))
-
-high_corr4 <- which(abs(M4) > 0.7 & abs(M4) < 1, arr.ind = TRUE)
-apply(high_corr4, 1, function(i) cat(rownames(M4)[i[1]], "-", colnames(M4)[i[2]], "r =", M4[i[1],i[2]], "\n"))
-
-high_corr5 <- which(abs(M5) > 0.7 & abs(M5) < 1, arr.ind = TRUE)
-apply(high_corr5, 1, function(i) cat(rownames(M5)[i[1]], "-", colnames(M5)[i[2]], "r =", M5[i[1],i[2]], "\n"))
-
-# high_corr6 <- which(abs(M6) > 0.7 & abs(M6) < 1, arr.ind = TRUE)
-# apply(high_corr6, 1, function(i) cat(rownames(M6)[i[1]], "-", colnames(M6)[i[2]], "r =", M6[i[1],i[2]], "\n"))
-
-
-# Correlation Thinned Covariate Sets
-### Removed one covar from highly correlated pairs when |r| > 0.7
-factor_covars_reduced
-
-land_covars_reduced <- c("developed_total_base",
-                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_woody_base", "wetlands_herb_base",
-                         
-                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
-
-climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
-
-stable_covars_reduced <- c("sr_diff", "pa_percent")
+# Output covariates
+# factor_covars_reduced
+land_covars_reduced <- c()
+climate_covars_reduced <- c()
+# stable_covars_reduced
 
 covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
-covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 
 # VIF
-vif_model1 <- glm(col ~ ., data = mod_colabs_rll_z[, c("col", covars_numeric_reduced_z)], family = binomial)
-vif(vif_model1)
-alias(vif_model1)
+vif1 <- glm(col ~ ., data = mod_col_rll[, c("col", numeric_covs_reduced)], family = binomial)
+vif(vif1)
+alias(vif1)
 
-vif_model2 <- glm(ext ~ ., data = mod_extper_rll_z[, c("ext", covars_numeric_reduced_z)], family = binomial)
-vif(vif_model2)
-alias(vif_model2)
+vif2 <- glm(ext ~ ., data = mod_ext_rll[, c("ext", numeric_covs_reduced)], family = binomial)
+vif(vif2)
+alias(vif2)
 
-vif_model3 <- glm(per ~ ., data = mod_perext_rll_z[, c("per", covars_numeric_reduced_z)], family = binomial)
-vif(vif_model3)
-alias(vif_model3)
 
-vif_model4 <- glm(col ~ ., data = mod_colabs_dnr_z[, c("col", covars_numeric_reduced_z)], family = binomial)
-vif(vif_model4)
-alias(vif_model4)
+vif3 <- glm(col ~ ., data = mod_col_dnr[, c("col", numeric_covs_reduced)], family = binomial)
+vif(vif3)
+alias(vif3)
 
-vif_model5 <- glm(ext ~ ., data = mod_extper_dnr_z[, c("ext", covars_numeric_reduced_z)], family = binomial)
-vif(vif_model5)
-alias(vif_model5)
+vif4 <- glm(ext ~ ., data = mod_ext_dnr[, c("ext", numeric_covs_reduced)], family = binomial)
+vif(vif4)
+alias(vif4)
 
-vif_model6 <- glm(per ~ ., data = mod_perext_dnr_z[, c("per", covars_numeric_reduced_z)], family = binomial)
-vif(vif_model6)
-alias(vif_model6)
+
 
 
 # VIF Thinned Covariate Sets
@@ -400,21 +414,14 @@ alias(vif_model6)
 
 factor_covars_reduced <- c("atlas_block")
 
-land_covars_reduced <- c("developed_total_base",
-                         "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                         "wetlands_woody_base", "wetlands_herb_base",
-                         
-                         "developed_total_diff", "forest_total_diff", "wetlands_total_diff")
-land_covars_reduced_z <- paste0(land_covars_reduced, "_z")
+land_covars_reduced <- c()
 
-climate_covars_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
-climate_covars_reduced_z <- paste0(climate_covars_reduced, "_z")
+climate_covars_reduced <- c()
 
-stable_covars_reduced # "sr_Diff", "pa_percent"
-stable_covars_reduced_z <- paste0(stable_covars_reduced, "_z")
+# stable_covars_reduced
+
 
 covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
-covars_numeric_reduced_z <- paste0(covars_numeric_reduced, "_z")
 
 
 

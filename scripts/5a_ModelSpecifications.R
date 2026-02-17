@@ -4,6 +4,10 @@
 
 ## --- LOAD PACKAGES --- ##
 
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(psych, usdm)
+
+
 # Core
 library(dplyr)
 library(tidyverse)
@@ -91,7 +95,7 @@ mod_data_all <- spp_zf_rll %>%
 mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 
 
-# SPECIES-RESPONSE SUBSETTING #
+# --- SPECIES-RESPONSE SUBSETTING --- #
 
 ### Separate data into bins where A2 detection is either 1 or 0; not necessarily
 # in precise probabilities between col, per, abs, ext, but more what promotes
@@ -100,7 +104,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Ruby-crowned Kinglet"
+spp_name <- "Swainson's Thrush"
 
 
 # Helper: Build filtered modeling dfs
@@ -171,11 +175,18 @@ mod_ext_dnr <- BuildSppRespDfs(
   response_one = "Extinction"
 )
 
+# Store in list
+mod_dfs_all <- list(
+  col_rll = mod_col_rll,
+  ext_rll = mod_ext_rll,
+  col_dnr = mod_col_dnr,
+  ext_dnr = mod_ext_dnr
+)
 
 
 # DATA SUMMARIES #
-### Counts of each response type for each species (247) and block set (3337, 858)
-rll_counts <- spp_zf_rll %>%
+### Counts of each response type per species (247) and block set (3337, 858)
+rll_counts <- mod_data_all %>%
   filter(atlas_block %in% blocks_rll) %>%
   count(common_name, transition_state) %>%
   pivot_wider(
@@ -185,7 +196,7 @@ rll_counts <- spp_zf_rll %>%
     values_fill = 0
   )
 
-dnr_counts <- spp_zf_rll %>%
+dnr_counts <- mod_data_all %>%
   filter(atlas_block %in% blocks_dnr) %>%
   count(common_name, transition_state) %>%
   pivot_wider(
@@ -195,19 +206,10 @@ dnr_counts <- spp_zf_rll %>%
     values_fill = 0
   )
 
-spp_list_counts <- rll_counts %>%
-  left_join(dnr_counts, by = "common_name") %>%
-  mutate(
-    total_rll = rowSums(dplyr::select(., starts_with("rll_"))),
-    total_dnr = rowSums(dplyr::select(., starts_with("dnr_")))
-  )
 
-
-
-
-
-
+##################
 ### COVARIATES ###
+##################
 
 # FULL DATASET #
 factor_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
@@ -236,7 +238,7 @@ climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
 
 
 
-### COVARIATE SUBSETS ###
+### --- COVARIATE SUBSETS --- ###
 
 ### ECOLOGICAL FILTERS ###
 ### Habitat guilds to bin land cover covariates
@@ -244,36 +246,36 @@ climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
 # Inputs
 guild_key <- list(
   
-  forest = c("developed_lower_base", "grass_pasture_crop_base", "shrub_scrub_base", 
+  forest = c("developed_total_base", "grass_pasture_crop_base",
               "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
               "wetlands_woody_base", "wetlands_herb_base",
               
-              "developed_total_diff", "forest_total_diff", "wetlands_total_diff"),
+              "forest_total_diff", "wetlands_total_diff"),
   
-  grass = c("shrub_scrub_base", "developed_lower_base", 
-            "forest_total_base","grassland_base", "pasture_crop_base", 
+  grass = c("developed_total_base","forest_total_base",
+            "grassland_base", "pasture_crop_base", 
                
-            "developed_total_diff", "grassland_diff", "pasture_crop_diff"),
+            "grassland_diff", "pasture_crop_diff"),
   
-  marsh = c("water_open_base", "shrub_scrub_base", "grass_pasture_crop_base",
-            "developed_lower_base", "forest_total_base", 
+  marsh = c("water_open_base", "grass_pasture_crop_base",
+            "developed_total_base", "forest_total_base", 
             "wetlands_woody_base", "wetlands_herb_base",
                
-            "developed_total_diff", "grass_pasture_crop_diff", "wetlands_total_diff"), 
+            "grass_pasture_crop_diff", "wetlands_total_diff"), 
   
   water = c("barren_land_base", "water_open_base", "developed_total_base",
             "grass_pasture_crop_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
             "wetlands_woody_base", "wetlands_herb_base",
             
-            "water_open_diff", "developed_total_diff", "forest_total_diff", 
+            "water_open_diff", "forest_total_diff", 
             "grass_pasture_crop_diff", "wetlands_total_diff"),
 
   
   general = c("barren_land_base", "water_open_base", "developed_total_base",
               "forest_total_base", "grass_pasture_crop_base", "wetlands_total_base",
                  
-              "developed_total_diff", "forest_total_diff", 
-              "grass_pasture_crop_diff", "wetlands_total_diff"),
+              "forest_total_diff", 
+              "grass_pasture_crop_diff", "wetlands_total_diff")
 
 )
 
@@ -282,7 +284,7 @@ GetGuildCovs <- function(species_name, data, guild_map) {
   guild_value <- data %>%
     filter(common_name == species_name) %>%
     distinct(guild) %>%
-    pull(grid)
+    pull(guild)
   
   if (length(guild_value) == 0) {
     stop("Species lacks guild assignment.")
@@ -296,20 +298,92 @@ GetGuildCovs <- function(species_name, data, guild_map) {
 }
 
 
-# Outputs
+# Subset outputs
 factor_covs_reduced <- c("atlas_block", "transition_state")
 stable_covs_reduced <- c("sr_diff", "pa_percent")
 land_covs_reduced <- GetGuildCovs(spp_name, mod_data_all, guild_key)
-climate_covs_all <- climate_covs_all
+climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", # base year values
+                                              
+                          "tmax_diff", "tmin_diff", "prcp_diff") # change values
 
-numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_all)
-
+numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_reduced)
 
 
 
 ### STATISTICAL FILTERS ### 
 
-# Helper: identify correlated predictors
+# CORRELATIONS #
+### Pair-wise, linear relationships (i.e. bivariate)
+
+covnames <- unique(numeric_covs_reduced)
+
+VisualizeCorrelations <- function(data, covs, label = "") {
+  
+  covnames <- covs[covs %in% names(data)]
+  
+  # Pairwise Plots
+  psych::pairs.panels(
+    data[, covnames],  
+    method = "pearson", 
+    hist.col = "#00AFBB",
+    density = FALSE,
+    ellipses = FALSE,
+    lm = TRUE,
+    main = paste("Visualizing Predictor Relationships:", label)
+  )
+
+  # Histograms 
+  print(
+    data %>%
+      dplyr::select(all_of(covnames)) %>%
+      pivot_longer(
+        cols = everything(), 
+        names_to = "Variable", 
+        values_to = "Value"
+      ) %>%
+      ggplot(aes(x = Value)) +
+      geom_histogram(bins = 20, fill = "steelblue", color = "white") +
+      facet_wrap(~Variable, scales = "free") +
+      theme_minimal() +
+      labs(
+        title = paste("Predictor Distributions:", label),
+        y = "Count", 
+        x = "Value"
+      )
+    )
+
+  # Correlation Matrix
+  cor_mat <- cor(data[, covnames], method = 'spearman')
+  
+  corrplot::corrplot.mixed(
+    cor_mat, 
+    tl.pos = 'lt', 
+    tl.cex = 0.8, 
+    number.cex = 0.7, 
+    addCoefasPercent = TRUE,
+    title = paste("Spearman Correlation Matrix:", label),
+    mar = c(0,0,2,0)
+  )
+  
+  invisible(cor_mat)
+}
+
+
+corr_results <- lapply(
+  names(mod_dfs_all),
+  function(nm) {
+    VisualizeCorrelations(
+      data = mod_dfs_all[[nm]],
+      covs = numeric_covs_reduced,
+      label = nm
+    )
+  }
+)
+
+names(corr_results) <- names(mod_dfs_all)
+
+
+# Helper: numerically identify correlated predictors
 GetHighCorrs <- function(data, covs, threshold = 0.7) {
   
   covs <- covs[sapply(data[, covs, drop = FALSE], function(x) # ignore covs w/ sd = 0
@@ -336,92 +410,120 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 corrs3 <- GetHighCorrs(mod_col_dnr, numeric_covs_reduced)
 corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 
-corrs1
-corrs2
-corrs3
-corrs4
-
-
-
-
-# Pairwise Correlations #
-pc1 <- cor(mod_col_rll[, numeric_covs_reduced], use = "pairwise.complete.obs")
-pc2 <- cor(mod_ext_rll[, numeric_covs_reduced], use = "pairwise.complete.obs")
-
-pc3 <- cor(mod_col_dnr[, numeric_covs_reduced], use = "pairwise.complete.obs")
-pc4 <- cor(mod_ext_dnr[, numeric_covs_reduced], use = "pairwise.complete.obs")
-
-
-# corrplot::corrplot(pc1, method = "color", tl.cex = 0.7, number.cex = 0.6)
-# corrplot::corrplot(pc2, method = "color", tl.cex = 0.7, number.cex = 0.6)
-
-# corrplot::corrplot(pc3, method = "color", tl.cex = 0.7, number.cex = 0.6)
-# corrplot::corrplot(pc4, method = "color", tl.cex = 0.7, number.cex = 0.6)
-
-corrs1 <- which(abs(pc1) > 0.7 & abs(pc1) < 1, arr.ind = TRUE)
-apply(corrs1, 1, function(i) cat(rownames(pc1)[i[1]], "-", colnames(pc1)[i[2]], "r =", pc1[i[1],i[2]], "\n"))
-
-corrs2 <- which(abs(pc2) > 0.7 & abs(pc2) < 1, arr.ind = TRUE)
-apply(corrs2, 1, function(i) cat(rownames(pc2)[i[1]], "-", colnames(pc2)[i[2]], "r =", pc2[i[1],i[2]], "\n"))
-
-corrs3 <- which(abs(pc3) > 0.7 & abs(pc3) < 1, arr.ind = TRUE)
-apply(corrs3, 1, function(i) cat(rownames(pc3)[i[1]], "-", colnames(pc3)[i[2]], "r =", pc3[i[1],i[2]], "\n"))
-
-corrs4 <- which(abs(pc4) > 0.7 & abs(pc4) < 1, arr.ind = TRUE)
-apply(corrs4, 1, function(i) cat(rownames(pc4)[i[1]], "-", colnames(pc4)[i[2]], "r =", pc4[i[1],i[2]], "\n"))
-
-
-
-
-
-
-
 
 # Output covariates
-# factor_covars_reduced
-land_covars_reduced <- c()
-climate_covars_reduced <- c()
 # stable_covars_reduced
 
-covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
+guild_key
+land_covs_reduced <- c()
+
+climate_covs_reduced
+climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff")
+
+numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
 
 
-# VIF
-vif1 <- glm(col ~ ., data = mod_col_rll[, c("col", numeric_covs_reduced)], family = binomial)
-vif(vif1)
-alias(vif1)
-
-vif2 <- glm(ext ~ ., data = mod_ext_rll[, c("ext", numeric_covs_reduced)], family = binomial)
-vif(vif2)
-alias(vif2)
-
-
-vif3 <- glm(col ~ ., data = mod_col_dnr[, c("col", numeric_covs_reduced)], family = binomial)
-vif(vif3)
-alias(vif3)
-
-vif4 <- glm(ext ~ ., data = mod_ext_dnr[, c("ext", numeric_covs_reduced)], family = binomial)
-vif(vif4)
-alias(vif4)
+# VARIANCE INFLATION FACTOR #
+### Single variable relationship to all others as a group (i.e. multivariate); 
+# multicollinearity redundancy measure, i.e. too similar to uniquely est coefficients
+responses <- c(
+  col_rll = "col",
+  ext_rll = "ext",
+  col_dnr = "col",
+  ext_dnr = "ext"
+)
 
 
+GetVIFs <- function(data, response, covs, family = "binomial") {
+  
+  formula_str <- as.formula(
+    paste(response, "~ .")
+  )
+  
+  df <- data[, c(response, covs)]
+  
+  mod <- glm(formula_str,
+             data = df, 
+             family = family)
+  
+  vifs <- car::vif(mod)
+  
+  vifs_sorted <- sort(vifs, decreasing = TRUE)
+  cat("\nVIF (sorted):\n")
+  print(vifs_sorted)
+  
+  cat("\nAliased coefficients:\n")
+  print(alias(mod))
+  
+  invisible(list(model = mod,
+                 vif = vifs_sorted))
+}
 
 
-# VIF Thinned Covariate Sets
-### Keep relatively loose, keep when VIF < 10 to not thin data too much prior
-# to first model ranking step
+vif_results <- lapply(
+  names(mod_dfs_all),
+  function(nm) {
+    
+    cat("VIF for", nm, "\n")
+    
+    GetVIFs(
+      data = mod_dfs_all[[nm]],
+      response = responses[nm],
+      covs = numeric_covs_reduced
+    )
+  }
+)
 
-factor_covars_reduced <- c("atlas_block")
-
-land_covars_reduced <- c()
-
-climate_covars_reduced <- c()
-
-# stable_covars_reduced
+names(vif_results) <- names(mod_dfs_all)
 
 
-covars_numeric_reduced <- c(land_covars_reduced, climate_covars_reduced, stable_covars_reduced)
+# Output Covariates
+
+guild_key
+land_covs_reduced <- c()
+
+climate_covs_reduced
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff")
+
+numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
+
+
+# Repeat
+vif_results <- lapply(
+  names(mod_dfs_all),
+  function(nm) {
+    
+    cat("VIF for", nm, "\n")
+    
+    GetVIFs(
+      data = mod_dfs_all[[nm]],
+      response = responses[nm],
+      covs = numeric_covs_reduced
+    )
+  }
+)
+
+names(vif_results) <- names(mod_dfs_all)
+
+
+
+
+
+
+
+factor_covs_reduced <- c("atlas_block")
+
+
+
+
+
+
+
+
+
+
+
 
 
 

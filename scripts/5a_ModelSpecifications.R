@@ -104,7 +104,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Swainson's Thrush"
+spp_name <- "Red-bellied Woodpecker"
 
 
 # Helper: Build filtered modeling dfs
@@ -418,7 +418,7 @@ guild_key
 land_covs_reduced <- c()
 
 climate_covs_reduced
-climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -481,10 +481,11 @@ names(vif_results) <- names(mod_dfs_all)
 # Output Covariates
 
 guild_key
-land_covs_reduced <- c()
+land_covs_reduced <- c("developed_total_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base",  
+                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff")
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -509,20 +510,7 @@ names(vif_results) <- names(mod_dfs_all)
 
 
 
-
-
-
 factor_covs_reduced <- c("atlas_block")
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -558,31 +546,29 @@ factor_covs_reduced <- c("atlas_block")
 
 ### DATA ###
 
-effort_covar <- "sr_diff_z"
-pa_covar <- "pa_percent_z"
+effort_covar <- "sr_diff"
+pa_covar <- "pa_percent"
 
 
 ### Create grid data directory of blocks x response subsets for fx lookup
 partition_grid <- expand.grid(
-  response = c("col", "ext", "per"),
+  response = c("col", "ext"),
   blocks = c("DNR", "RLL"),
   partition = c("climate", "land"),
   stringsAsFactors = FALSE
 )
 
 data_dir <- list(
-  RLL_col = mod_colabs_rll_z,
-  RLL_ext = mod_extper_rll_z,
-  RLL_per = mod_perext_rll_z,
+  RLL_col = mod_col_rll,
+  RLL_ext = mod_ext_rll,
   
-  DNR_col = mod_colabs_dnr_z,
-  DNR_ext = mod_extper_dnr_z,
-  DNR_per = mod_perext_dnr_z
+  DNR_col = mod_col_dnr,
+  DNR_ext = mod_ext_dnr
 )
 
 covar_dir <- list(
-  climate = climate_covars_reduced_z,
-  land    = land_covars_reduced_z
+  climate = climate_covs_reduced,
+  land    = land_covs_reduced
 )
 
 
@@ -798,8 +784,8 @@ merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
 ### Combine climate, land covars lists from partitioned models into single covar list/pool for 
 # new additive mod selection process; find new ref model to carry into interaction step (2B).
 
-effort_covar <- "sr_diff_z"
-pa_covar <- "pa_percent_z"
+effort_covar <- "sr_diff"
+pa_covar <- "pa_percent"
 
 
 merged_ref_covariates <- lapply(
@@ -907,15 +893,13 @@ reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
 
 ### Use reference model for each blocks x response subsets to obtain effect sizes, etc.
 
-# Model data (responses: col, abs, per)
+# Model data (responses: col, abs)
 data_dir <- list(
-  RLL_col = mod_colabs_rll_z,
-  RLL_ext = mod_extper_rll_z,
-  RLL_per = mod_perext_rll_z,
+  RLL_col = mod_col_rll,
+  RLL_ext = mod_ext_rll,
   
-  DNR_col = mod_colabs_dnr_z,
-  DNR_ext = mod_extper_dnr_z,
-  DNR_per = mod_perext_dnr_z
+  DNR_col = mod_col_dnr,
+  DNR_ext = mod_ext_dnr
 )
 
 

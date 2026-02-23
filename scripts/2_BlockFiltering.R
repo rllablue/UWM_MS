@@ -26,7 +26,7 @@ library(exactextractr)
 ### --- ALL BLOCKS --- ###
 
 # Load, create maps
-blocks_all_shp <- st_read("data/maps/wibba blocks/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
+blocks_all_shp <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
   rename(atlas_block = BLOCK_ID)
 
 

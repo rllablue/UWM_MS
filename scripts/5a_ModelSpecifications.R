@@ -104,7 +104,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Red-bellied Woodpecker"
+spp_name <- "Eastern Meadowlark"
 
 
 # Helper: Build filtered modeling dfs
@@ -481,11 +481,10 @@ names(vif_results) <- names(mod_dfs_all)
 # Output Covariates
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base",  
-                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <- c()
 
 climate_covs_reduced
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 

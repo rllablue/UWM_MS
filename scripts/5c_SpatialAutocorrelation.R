@@ -102,7 +102,7 @@ RunMoranResiduals <- function(model,
                               blocks_rll,
                               blocks_dnr,
                               model_name, 
-                              k = 8) {
+                              k = 4) {
   
   # Determine pool
   pool_blocks <- if (grepl("RLL", model_name)) {

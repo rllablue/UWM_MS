@@ -47,54 +47,15 @@ global_glm_models
 # Atlas blocks geometry
 blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
   rename(atlas_block = BLOCK_ID)
+crs(blocks_all_sf)
 
 blocks_background <- blocks_all_sf %>%
   filter(atlas_block %in% union(blocks_rll, blocks_dnr))
 
 
 
-RunMoranResiduals <- function(model, model_df, blocks_sf) {
-  
-  # 1. Attach geometry
-  sf_obj <- model_df %>%
-    left_join(
-      blocks_sf %>% dplyr::select(atlas_block, geometry),
-      by = "atlas_block"
-    ) %>%
-    st_as_sf()
-  
-  # 2. Sort to ensure alignment
-  sf_obj <- sf_obj %>%
-    arrange(atlas_block)
-  
-  # 3. Extract Pearson residuals
-  sf_obj$resid <- residuals(model, type = "pearson")
-  
-  # 4. Build neighbors (queen contiguity)
-  nb <- poly2nb(sf_obj, queen = TRUE)
-  
-  # Check isolated blocks
-  if (any(card(nb) == 0)) {
-    message("Some blocks have zero neighbors.")
-  }
-  
-  lw <- nb2listw(nb, style = "W", zero.policy = TRUE)
-  
-  # 5. Moran's I
-  moran.test(sf_obj$resid, lw, zero.policy = TRUE)
-}
 
-
-
-
-
-
-
-
-
-
-
-
+### MORAN'S I ###
 
 RunMoranResiduals <- function(model, 
                               model_df, 

@@ -21,16 +21,46 @@ library(exactextractr)
 ############################
 
 ### --- UPLOAD FILES --- ### 
-blocks_comp_shp_5070 <- blocks_comp_shp %>% # reproject atlas blocks
-  st_transform(5070)  # NAD83, Conus Albers EPSG:5070 (ideal for area calcs)
+# Atlas blocks geometry
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
+  rename(atlas_block = BLOCK_ID)
+blocks_all_sf <- st_transform(blocks_all_sf, 5070)
+st_crs(blocks_all_sf)
 
-pad_wi_5070 <- st_read("data/maps/pad wi/pad_wi_polygons.shp") %>% # align pad crs
-  st_transform(5070)
+# PAD geometry
+st_layers("data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb")
+wipad_sf <- st_read(
+  "data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb",
+  layer = "PADUS4_1Fee_State_WI"
+)
+names(wipad_sf)
+
+wipad_sf <- st_transform(wipad_sf, 5070)
+st_crs(wipad_sf)
 
 
-### --- FULL PAD --- ###
+# Filtering for counts
+wipad_sf %>%
+  filter(Own_Name == "NGO") %>%
+  count(Des_Tp, sort = TRUE)
 
-# Calculate PA/block w/ dissolving ie. "full" PA cover per block
+wipad_sf %>% # w/in NGO
+  filter(
+    Own_Name == "NGO",
+    Loc_Own == "National Audubon Society" # or National Audubon Society
+  ) %>%
+  count(Des_Tp, sort = TRUE)
+
+
+
+
+
+
+
+
+### --- TOTAL PA --- ###
+### Calculate PA/block w/ dissolving ie. "full" PA cover per block
+
 pad_wi_diss <- pad_wi_5070 %>% 
   st_union() %>% 
   st_sf(geometry = .) %>% # attempt to remedy inaccurate pa %s over 100

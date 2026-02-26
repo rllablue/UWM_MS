@@ -47,7 +47,7 @@ library(webshot2)
 spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") # df
 spp_list <- unique(spp_zf_rll$common_name) # vector
 
-covars_raw_rll <- read.csv("data/summaries/covars_raw_all.csv") # df
+covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
 covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
   mutate(sr_diff = sr_Atlas2 - sr_Atlas1,
          grass_pasture_crop_base = grassland_base + pasture_crop_base,
@@ -71,7 +71,7 @@ blocks_dnr <- blocks_dnr$atlas_block # vector
 #  guild = NA_character_
 #)
 
-#write.csv(spp_guilds, "data/summaries/species_guilds.csv", row.names = FALSE)
+# write.csv(spp_guilds, "data/summaries/species_guilds.csv", row.names = FALSE)
 spp_guilds <- read.csv("data/summaries/species_guilds.csv")
 
 spp_zf_rll <- spp_zf_rll %>%

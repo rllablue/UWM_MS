@@ -44,6 +44,10 @@ wipad_sf %>%
   filter(Own_Name == "SDNR") %>%
   count(Des_Tp, sort = TRUE)
 
+wipad_sf %>%
+  filter(GAP_Sts == "1") %>%
+  count(Des_Tp, sort = TRUE)
+
 wipad_sf %>% # w/in NGO
   filter(
     Own_Name == "NGO",
@@ -96,6 +100,7 @@ wipad_wibba_summary <- blocks_all_sf %>%
 
 
 ### -- FILTERED PAD --- ###
+### LAND OWNER ###
 # Calculate PA/block w/ no dissolving (allows for land owner filtering)
 
 
@@ -184,6 +189,102 @@ covars_raw_rll <- covars_raw_rll %>%
   left_join(
     wipad_wibba_summary %>%
       dplyr::select(atlas_block, pa_percent, sdnr_percent, usfs_percent, nas_percent, tnc_percent),
+    by = "atlas_block"
+  )
+
+# write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
+
+
+
+
+
+
+### --- FILTERED PAD: GAP STATUS --- ###
+
+### --- FILTERED PAD: GAP STATUS --- ###
+
+# Compute per-GAP PA per block
+wipad_gap_summary <- blocks_all_sf %>%
+  
+  # keep only blocks of interest (same logic as owner step)
+  filter(atlas_block %in% blocks_rll) %>%
+  
+  st_intersection(wipad_sf) %>%
+  
+  mutate(area_km2 = as.numeric(st_area(.) / 1e6)) %>%
+  
+  group_by(atlas_block, GAP_Sts) %>%
+  summarise(area_km2 = sum(area_km2), .groups = "drop") %>%
+  
+  st_drop_geometry() %>%
+  
+  # pivot so each GAP status is its own column
+  pivot_wider(
+    names_from = GAP_Sts,
+    values_from = area_km2,
+    names_glue = "gap{GAP_Sts}_area_km2",
+    values_fill = 0
+  ) %>%
+  
+  # ensure all blocks_rll included
+  right_join(
+    tibble(atlas_block = blocks_rll),
+    by = "atlas_block"
+  ) %>%
+  
+  # replace NAs with 0
+  mutate(
+    gap1_area_km2 = replace_na(gap1_area_km2, 0),
+    gap2_area_km2 = replace_na(gap2_area_km2, 0),
+    gap3_area_km2 = replace_na(gap3_area_km2, 0),
+    gap4_area_km2 = replace_na(gap4_area_km2, 0)
+  ) %>%
+  
+  # add block total area
+  left_join(
+    blocks_all_sf %>%
+      st_drop_geometry() %>%
+      dplyr::select(atlas_block, block_area_km2),
+    by = "atlas_block"
+  ) %>%
+  
+  # compute percentages of total block
+  mutate(
+    gap1_percent = gap1_area_km2 / block_area_km2 * 100,
+    gap2_percent = gap2_area_km2 / block_area_km2 * 100,
+    gap3_percent = gap3_area_km2 / block_area_km2 * 100,
+    gap4_percent = gap4_area_km2 / block_area_km2 * 100
+  ) %>%
+  
+  dplyr::select(
+    atlas_block,
+    gap1_area_km2, gap1_percent,
+    gap2_area_km2, gap2_percent,
+    gap3_area_km2, gap3_percent,
+    gap4_area_km2, gap4_percent
+  )
+
+
+# Join to summary
+wipad_wibba_summary <- wipad_wibba_summary %>%
+  left_join(wipad_gap_summary, by = "atlas_block") %>%
+  mutate(across(starts_with("gap"), ~ replace_na(.x, 0)))
+
+
+wipad_wibba_summary <- wipad_wibba_summary %>% # props from total percentage to avoid singularity
+  mutate(
+    gap1_prop = ifelse(pa_percent > 0, gap1_percent / pa_percent, 0),
+    gap2_prop = ifelse(pa_percent > 0, gap2_percent / pa_percent, 0),
+    gap3_prop = ifelse(pa_percent > 0, gap3_percent / pa_percent, 0)
+    # gap4 is reference (no protection)
+  )
+
+
+
+covars_raw_rll <- covars_raw_rll %>%
+  left_join(
+    wipad_wibba_summary %>%
+      dplyr::select(atlas_block, gap1_prop, gap2_prop, gap3_prop),
     by = "atlas_block"
   )
 

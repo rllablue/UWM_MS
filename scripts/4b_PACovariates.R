@@ -91,16 +91,6 @@ wipad_wibba_summary <- blocks_all_sf %>%
   dplyr::select(atlas_block, pa_area_km2, block_area_km2, pa_percent)
   
 
-# Add to raw modeling data
-covars_raw_rll <- covars_raw_rll %>%
-  dplyr::select(-pa_percent) %>%
-  left_join(
-    wipad_wibba_summary %>%
-      dplyr::select(atlas_block, pa_percent),
-    by = "atlas_block"
-  )
-
-# write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
 
 
 
@@ -116,14 +106,11 @@ wipad_sf <- wipad_sf %>%
       Own_Name == "SDNR" ~ "sdnr",
       Own_Name == "USFS" ~ "usfs",
       Own_Name == "NGO" & Loc_Own == "The Nature Conservancy" ~ "tnc",
-      Own_Name == "NGO" & Loc_Own == "National Audubon Society" ~ "nac",
+      Own_Name == "NGO" & Loc_Own == "National Audubon Society" ~ "nas",
       TRUE ~ NA_character_
     )
   ) %>%
   filter(!is.na(owner_id))
-
-
-
 
 
 # Compute per-owner PA per block
@@ -156,7 +143,7 @@ wipad_own_summary <- blocks_all_sf %>%
     sdnr_area_km2 = replace_na(sdnr_area_km2, 0),
     usfs_area_km2 = replace_na(usfs_area_km2, 0),
     tnc_area_km2  = replace_na(tnc_area_km2, 0),
-    nac_area_km2  = replace_na(nac_area_km2, 0)
+    nas_area_km2  = replace_na(nas_area_km2, 0)
   ) %>%
   
   # add block total area
@@ -172,19 +159,32 @@ wipad_own_summary <- blocks_all_sf %>%
     sdnr_percent = sdnr_area_km2 / block_area_km2 * 100,
     usfs_percent = usfs_area_km2 / block_area_km2 * 100,
     tnc_percent  = tnc_area_km2  / block_area_km2 * 100,
-    nac_percent  = nac_area_km2  / block_area_km2 * 100
+    nas_percent  = nas_area_km2  / block_area_km2 * 100
   ) %>%
   dplyr::select(
     atlas_block,
     sdnr_area_km2, sdnr_percent,
     usfs_area_km2, usfs_percent,
     tnc_area_km2, tnc_percent,
-    nac_area_km2, nac_percent
+    nas_area_km2, nas_percent
   )
 
 
+### --- JOIN TO DATA FRAMES --- ###
 
-# Join to pull wibba, wipad summary
+# Join to full wibba, wipad summary
 wipad_wibba_summary <- wipad_wibba_summary %>%
   left_join(wipad_own_summary, by = "atlas_block") %>%
   mutate(across(ends_with(c("_area_km2", "_percent")), ~replace_na(.x, 0)))
+
+
+# Join % values to raw covariates df
+# Add to raw modeling data
+covars_raw_rll <- covars_raw_rll %>%
+  left_join(
+    wipad_wibba_summary %>%
+      dplyr::select(atlas_block, pa_percent, sdnr_percent, usfs_percent, nas_percent, tnc_percent),
+    by = "atlas_block"
+  )
+
+# write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)

@@ -50,8 +50,8 @@ spp_list <- unique(spp_zf_rll$common_name) # vector
 covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
 covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
   mutate(sr_diff = sr_Atlas2 - sr_Atlas1,
-         grass_pasture_crop_base = grassland_base + pasture_crop_base,
-         grass_pasture_crop_diff = grassland_diff + pasture_crop_diff)
+         grass_pasture_base = grassland_base + pasture_base,
+         grass_pasture_diff = grassland_diff + pasture_diff)
 covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
   mutate(across(
     .cols = -atlas_block,
@@ -214,23 +214,21 @@ dnr_counts <- mod_data_all %>%
 # FULL DATASET #
 factor_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
 
-stable_covs_all <- c("lon", "lat", "sr_diff", "pa_percent")
+stable_covs_all <- c("lon", "lat", "sr_diff", "pa_percent", "sdnr_percent", "usfs_percent", "nas_percent", "tnc_percent")
 
 land_covs_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", # base year values
-                    "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
-                    "developed_lower_base", "developed_upper_base", "developed_total_base", 
-                    "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base",
-                    "forest_total_base", "pasture_base", "cropland_base", 
-                    "grassland_base", "pasture_crop_base", "grass_pasture_crop_base",
-                    "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
-                     
-                    "water_open_diff", "barren_land_diff", "shrub_scrub_diff", # change values
-                    "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
-                    "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
-                    "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", 
-                    "forest_total_diff", "pasture_diff", "cropland_diff", 
-                    "grassland_diff", "pasture_crop_diff", "grass_pasture_crop_diff",
-                    "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
+                   "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
+                   "developed_lower_base", "developed_upper_base", "developed_total_base", 
+                   "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base", "forest_total_base", 
+                   "pasture_base", "cropland_base", "grassland_base", "grass_pasture_base",
+                   "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base",
+                   
+                   "water_open_diff", "barren_land_diff", "shrub_scrub_diff", # change values
+                   "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
+                   "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
+                   "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", "forest_total_diff", 
+                   "pasture_diff", "cropland_diff", "grassland_diff", "grass_pasture_diff",
+                   "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
 
 climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
                         
@@ -246,36 +244,35 @@ climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
 # Inputs
 guild_key <- list(
   
-  forest = c("developed_total_base", "grass_pasture_crop_base",
+  forest = c("developed_total_base", "grass_pasture_base",
               "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
               "wetlands_woody_base", "wetlands_herb_base",
               
               "forest_total_diff", "wetlands_total_diff"),
   
-  grass = c("developed_total_base","forest_total_base",
-            "grassland_base", "pasture_crop_base", 
+  grass = c("developed_total_base","forest_total_base", "cropland_base",
+            "grassland_base", "pasture_base", "grass_pasture_base",
                
-            "grassland_diff", "pasture_crop_diff"),
+            "grassland_diff", "pasture_diff"),
   
-  marsh = c("water_open_base", "grass_pasture_crop_base",
+  marsh = c("water_open_base", "grass_pasture_base",
             "developed_total_base", "forest_total_base", 
             "wetlands_woody_base", "wetlands_herb_base",
                
-            "grass_pasture_crop_diff", "wetlands_total_diff"), 
+            "grass_pasture_diff", "wetlands_total_diff"), 
   
-  water = c("barren_land_base", "water_open_base", "developed_total_base",
-            "grass_pasture_crop_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+  water = c("barren_land_base", "water_open_base", "developed_total_base", "grass_pasture_base", 
+            "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
             "wetlands_woody_base", "wetlands_herb_base",
             
             "water_open_diff", "forest_total_diff", 
-            "grass_pasture_crop_diff", "wetlands_total_diff"),
+            "grass_pasture_diff", "wetlands_total_diff"),
 
   
   general = c("barren_land_base", "water_open_base", "developed_total_base",
-              "forest_total_base", "grass_pasture_crop_base", "wetlands_total_base",
+              "forest_total_base", "grass_pasture_base", "wetlands_total_base",
                  
-              "forest_total_diff", 
-              "grass_pasture_crop_diff", "wetlands_total_diff")
+              "forest_total_diff", "grass_pasture_diff", "wetlands_total_diff")
 
 )
 
@@ -300,7 +297,7 @@ GetGuildCovs <- function(species_name, data, guild_map) {
 
 # Subset outputs
 factor_covs_reduced <- c("atlas_block", "transition_state")
-stable_covs_reduced <- c("sr_diff", "pa_percent")
+stable_covs_reduced <- c("sr_diff") # no pa in this stage
 land_covs_reduced <- GetGuildCovs(spp_name, mod_data_all, guild_key)
 climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", # base year values
                                               
@@ -573,7 +570,7 @@ covar_dir <- list(
 
 
 
-### --- STEP 1: COVARIATE PARTITIONED MODELS --- ###
+### --- STEP 1: ENV PARTITIONED MODELS --- ###
 
 ### Full, additive candidate model sets for climate and land cover covariates
 # w/ null included. AICc fitting, ranking; extract covars to pass on from "reference" 
@@ -779,7 +776,7 @@ merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
 
 
 
-### --- STEP 2: GLOBAL MODELS --- ###
+### --- STEP 2: GLOBAL ENV MODELS --- ###
 
 ### Combine climate, land covars lists from partitioned models into single covar list/pool for 
 # new additive mod selection process; find new ref model to carry into interaction step (2B).
@@ -790,14 +787,13 @@ pa_covar <- "pa_percent"
 
 merged_ref_covariates <- lapply(
   merged_ref_covariates,
-  function(covs) unique(c(covs, pa_covar)) # add in PA to pool in non-forced manner
+  function(covs) unique(c(covs)) # WIP: removed pa_covar
 )
 
 
 
 BuildGlobalRHS <- function(covariates,
-                           forced = effort_covar,
-                           pa = pa_covar) {
+                           forced = effort_covar) { # WIP: removed pa_covar
   
   covariates <- unique(covariates)
   
@@ -838,8 +834,7 @@ FitGlobalModels <- function(response,
   
   rhs_terms <- BuildGlobalRHS(
     covariates = covariates,
-    forced     = effort_covar,
-    pa         = pa_covar
+    forced     = effort_covar
   )
   
   models <- list()
@@ -881,15 +876,13 @@ global_models <- lapply(names(merged_ref_covariates), function(key) {
 names(global_models) <- names(merged_ref_covariates)
 
 top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
-reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
+reference_global_models <- lapply(top_global_models, ExtractReferenceModel) # WIP: only contains env and effort covars
 
 
 
 
 
-
-
-### --- STEP 3: MODELING --- ###
+### --- STEP 3: ENV MODELING --- ###
 
 ### Use reference model for each blocks x response subsets to obtain effect sizes, etc.
 
@@ -935,6 +928,22 @@ global_glm_summaries <- lapply(global_glm_models, summary)
 
 
 
+
+
+
+### --- 4: GLOBAL PA MODELS --- ###
+
+
+
+
+
+
+
+
+
+
+
+##############################################################################
 
 ### --- Model Comparison --- ###
 # McFadden Pseudo-R2 b/c binomial glm

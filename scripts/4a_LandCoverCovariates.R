@@ -128,7 +128,7 @@ Extract_landcover <- function(nlcd_raster, blocks_sf, year_suffix) {
     mutate(
       developed_lower   = developed_open + developed_low,
       developed_upper   = developed_med + developed_high,
-      pasture_crop      = pasture + cropland,
+      grass_pasture     = pasture + grassland,
       developed_total   = developed_open + developed_low + developed_med + developed_high,
       forest_total      = forest_deciduous + forest_evergreen + forest_mixed,
       wetlands_total    = wetlands_woody + wetlands_herb
@@ -258,7 +258,7 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_s
       mutate(
         developed_lower   = developed_open + developed_low,
         developed_upper   = developed_med + developed_high,
-        pasture_crop      = pasture + cropland,
+        grass_pasture     = pasture + grassland,
         developed_total   = developed_open + developed_low + developed_med + developed_high,
         forest_total      = forest_deciduous + forest_evergreen + forest_mixed,
         wetlands_total    = wetlands_woody + wetlands_herb
@@ -281,7 +281,7 @@ Extract_landcover_diff <- function(raster_early, raster_late, blocks_sf, years_s
     "barren_land", "forest_deciduous", "forest_evergreen", "forest_mixed",
     "shrub_scrub", "grassland", "pasture", "cropland",
     "wetlands_woody", "wetlands_herb",
-    "developed_lower","developed_upper","pasture_crop",
+    "developed_lower","developed_upper","grass_pasture",
     "developed_total","forest_total","wetlands_total"
   )
   
@@ -413,7 +413,7 @@ print(vif_values)
 # -----------------------------
 exclude_types <- c("developed_open", "developed_low", "developed_med",
                    "developed_high", "pasture", "cropland")
-grouped_classes <- c("developed_lower", "developed_upper", "pasture_crop")
+grouped_classes <- c("developed_lower", "developed_upper", "grass_pasture")
 
 # -----------------------------
 # 2. Combine and tidy individual year data
@@ -584,7 +584,7 @@ pairwise_wilcox_results
 # -----------------------------
 exclude_types <- c("developed_open", "developed_low", "developed_med",
                    "developed_high", "pasture", "cropland")
-grouped_classes <- c("developed_lower", "developed_upper", "pasture_crop")
+grouped_classes <- c("developed_lower", "developed_upper", "grass_pasture")
 
 land_diff_long <- wi_land9515_diff %>%
   dplyr::select(atlas_block, dplyr::ends_with("_diff")) %>%

@@ -47,3 +47,14 @@ ggplot(srdiff_hist_data, aes(x = sr_diff, fill = source)) +
 wibba_covars_rll <- wibba_covars_raw %>%
   left_join(climate_summary_covars, by = "atlas_block")
 
+
+
+
+
+######### NEW 2.27.26] ###############
+
+covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
+  mutate(sr_diff = sr_Atlas2 - sr_Atlas1)
+
+# write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
+

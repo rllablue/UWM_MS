@@ -104,7 +104,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Red-bellied Woodpecker"
+spp_name <- "Ruby-crowned Kinglet"
 
 
 # Helper: Build filtered modeling dfs
@@ -214,7 +214,9 @@ dnr_counts <- mod_data_all %>%
 # FULL DATASET #
 factor_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
 
-stable_covs_all <- c("lon", "lat", "sr_diff", "pa_percent", "sdnr_percent", "usfs_percent", "nas_percent", "tnc_percent")
+stable_covs_all <- c("lon", "lat", "sr_diff", "pa_prop", # total prop pa per block 
+                     "sdnr_prop", "usfs_prop", "tnc_prop", "nas_prop", # manager prop of total pa per block
+                     "gap1_prop", "gap2_prop", "gap3_prop") # gap status prop of total pa per block
 
 land_covs_all <- c("water_open_base", "barren_land_base", "shrub_scrub_base", # base year values
                    "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
@@ -412,10 +414,11 @@ corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c()
+land_covs_reduced <- c("developed_total_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", "wetlands_woody_base",  
+                        "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced
-climate_covs_reduced <- c()
+climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", "tmax_diff", "tmin_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -476,13 +479,11 @@ names(vif_results) <- names(mod_dfs_all)
 
 
 # Output Covariates
-
 guild_key
-land_covs_reduced <- c("developed_total_base", "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base",  
-                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <- c()
 
 climate_covs_reduced
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -504,10 +505,6 @@ vif_results <- lapply(
 
 names(vif_results) <- names(mod_dfs_all)
 
-
-
-
-factor_covs_reduced <- c("atlas_block")
 
 
 
@@ -782,7 +779,6 @@ merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
 # new additive mod selection process; find new ref model to carry into interaction step (2B).
 
 effort_covar <- "sr_diff"
-pa_covar <- "pa_percent"
 
 
 merged_ref_covariates <- lapply(
@@ -884,8 +880,6 @@ reference_global_models <- lapply(top_global_models, ExtractReferenceModel) # WI
 
 ### --- STEP 3: ENV MODELING --- ###
 
-### Use reference model for each blocks x response subsets to obtain effect sizes, etc.
-
 # Model data (responses: col, abs)
 data_dir <- list(
   RLL_col = mod_col_rll,
@@ -929,11 +923,80 @@ global_glm_summaries <- lapply(global_glm_models, summary)
 
 
 
+### --- 4: GLOBAL PA MODELS, MODELING --- ###
+pa_covars <- c("pa_prop")
+gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
 
 
-### --- 4: GLOBAL PA MODELS --- ###
+FitPAModels <- function(ref_df, response, data) {
+  
+  # Extract environmental RHS from reference model
+  env_rhs <- ref_df$Modnames[1]
+  
+  # Build candidate RHS strings
+  rhs_list <- list(
+    ENV = env_rhs,
+    ENV_PA = paste(env_rhs, "+", paste(pa_covars, collapse = " + ")),
+    ENV_PA_GAP = paste(env_rhs, "+",
+                       paste(c(pa_covars, gap_covars), collapse = " + "))
+  )
+  
+  # Fit models
+  models <- lapply(rhs_list, function(rhs) {
+    glm(as.formula(paste(response, "~", rhs)),
+        data = data,
+        family = binomial)
+  })
+  
+  # Model selection table
+  ms_table <- MuMIn::model.sel(models, rank = "AICc")
+  
+  list(models = models, sel_table = ms_table)
+}
 
 
+RefitTopModel <- function(model_obj) {
+  
+  # Extract selection table
+  ms_table <- model_obj$sel_table
+  models   <- model_obj$models
+  
+  # Determine top model name (Δ = 0)
+  df <- as.data.frame(ms_table)
+  df$Modnames <- rownames(df)
+  top_name <- df$Modnames[df$delta == min(df$delta)][1]
+  
+  # Return the **fitted model object** directly
+  models[[top_name]]
+}
+
+
+
+
+pa_models <- lapply(names(reference_global_models), function(nm) {
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  FitPAModels(
+    ref_df = reference_global_models[[nm]],
+    response = response,
+    data = data_dir[[nm]]
+  )
+})
+
+names(pa_models) <- names(reference_global_models)
+
+# Extract top Δ=0 models
+top_pa_models <- lapply(pa_models, RefitTopModel)
+names(top_pa_models) <- names(pa_models)
+
+# Check VIFs
+vif_results_pa <- lapply(top_pa_models, car::vif)
+
+# Quick summary example
+summary(top_pa_models$DNR_col)
+summary(top_pa_models$DNR_ext)
+summary(top_pa_models$RLL_col)
+summary(top_pa_models$RLL_ext)
 
 
 

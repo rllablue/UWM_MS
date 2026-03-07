@@ -104,7 +104,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Eastern Meadowlark"
+spp_name <- "Red-bellied Woodpecker"
 
 
 # Helper: Build filtered modeling dfs
@@ -1189,7 +1189,7 @@ rll_all <- rbind(
 curve_dnr_pa <- MakeResponseCurve_fixed(
   model_col = top_pa_models$DNR_col,
   model_ext = top_pa_models$DNR_ext,
-  focal_var = "gap3_prop",
+  focal_var = "pa_prop",
   data = dnr_all
 )
 
@@ -1197,14 +1197,23 @@ curve_dnr_pa <- MakeResponseCurve_fixed(
 curve_rll_pa <- MakeResponseCurve_fixed(
   model_col = top_pa_models$RLL_col,
   model_ext = top_pa_models$RLL_ext,
-  focal_var = "gap3_prop",
+  focal_var = "pa_prop",
   data = rll_all
 )
 
 
 
+# Text size
+title_size       <- 16
+subtitle_size    <- 14
+legend_title_size <- 12
+legend_text_size  <- 11
 
-ggplot(curve_dnr_pa, aes(x = x)) +
+
+
+
+
+ggplot(curve_rll_pa, aes(x = x)) +
   
   # Colonization ribbon
   geom_ribbon(aes(ymin = col_lwr, ymax = col_upr, fill = "Colonization"),
@@ -1218,21 +1227,45 @@ ggplot(curve_dnr_pa, aes(x = x)) +
   geom_line(aes(y = ext_fit, color = "Extinction"),
             size = 1) +
   
-  scale_color_manual(values = c("Colonization" = "steelblue",
+  scale_color_manual(values = c("Colonization" = "darkorchid",
                                 "Extinction" = "orange")) +
   
-  scale_fill_manual(values = c("Colonization" = "steelblue",
+  scale_fill_manual(values = c("Colonization" = "darkorchid",
                                "Extinction" = "orange")) +
   
-  ylim(0, 1) +
-  labs(x = "GAP 3 PA (%)",
+  ylim(0, 0.75) +
+  labs(x = "Total PA (%)",
        y = "Predicted Probability",
        color = "Process",
        fill  = "Process",
-       title = "Ruby-crowned Kinglet Response to PA [RLL]") +
+       title = "Red-bellied Woodpecker Response") +
   
-  theme_minimal()
-
+  theme_minimal() +
+  
+  theme(
+      
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold",
+        size = title_size,
+        margin = margin(b = 12)
+      ),
+      axis.title.x = element_text(
+        face = "bold",
+        size = axis_title_size,
+        margin = margin(t = 12)
+      ),
+      axis.title.y = element_text(
+        face = "bold",
+        size = axis_title_size,
+        margin = margin(r = 12)
+      ),
+      axis.text.x = element_text(size = axis_text_size, angle = 0, vjust = 0.5),
+      axis.text.y = element_text(size = axis_text_size),
+      
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 11)
+  ) 
 
 
 

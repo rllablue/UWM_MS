@@ -449,6 +449,7 @@ plot_prediction_map <- function(mod_name) {
             linewidth = 0.2) +
     scale_fill_viridis_c(
       option = "C",
+      direction = -1,
       name = "Predicted\nProbability"
     ) +
     theme_void() +
@@ -472,12 +473,9 @@ plot_prediction_map <- function(mod_name) {
             color = NA) +
     scale_fill_viridis_c(
       option = "C",
-      name = "Predicted\nProbability"
+      name = "P(Extinction)"
     ) +
-    theme_void() +
-    labs(
-      title = paste("Predicted Probability -", mod_name)
-    )
+    theme_void()
 }
 
 plot_prediction_map("RLL_col")

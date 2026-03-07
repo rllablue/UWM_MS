@@ -45,10 +45,241 @@ Crop_mask_buffer <- function(raster_obj, polygon_sf, buffer_dist = 1000) {
 }
 
 
-
 #########################
 ### LAND COVER (NLCD) ###
 #########################
+
+########################################################################################### NEW 3.5.26 ############################################
+
+### Set up ###
+nlcd_2008_raw <- rast("data/maps/nlcd/NLCD_LndCov_2008.tif")
+terra::readStart(nlcd_2008_raw)
+nlcd_2008_raw <- terra::project(nlcd_2008_raw, "EPSG:5070")
+terra::crs(nlcd_2008_raw)
+
+blocks_all_sf <- st_transform(blocks_all_sf, 5070)
+wipad_sf <- st_transform(wipad_sf, 5070)
+
+st_crs(blocks_all_sf)
+st_crs(wipad_sf)
+
+# Filter to blocks needing calculations from full set
+blocks_rll_sf <- blocks_all_sf %>%
+  dplyr::filter(atlas_block %in% blocks_rll)
+
+wipad_rll_sf <- st_filter(wipad_sf, blocks_rll_sf)
+
+st_crs(wipad_rll_sf)
+
+# Create state outline
+wibba_outline <- st_as_sf(st_union(blocks_all_sf))
+st_crs(wibba_outline)
+
+
+
+wibba_vect <- terra::vect(wibba_outline)
+
+winlcd_2008 <- nlcd_2008_raw %>%
+  terra::crop(wibba_vect) %>%
+  terra::mask(wibba_vect)
+
+st_crs(winlcd_2008)
+
+
+pa_block_intersections <- st_intersection(
+  blocks_rll_sf %>% dplyr::select(atlas_block),
+  wipad_rll_sf %>% dplyr::select(owner_id)
+)
+
+
+pa_block_intersections <- pa_block_intersections %>%
+  mutate(ID = row_number())
+
+pa_vect <- terra::vect(pa_block_intersections)
+
+
+
+nlcd_extract <- terra::extract(
+  winlcd_2008,
+  pa_vect,
+  weights = TRUE
+) %>%
+  as_tibble() %>%
+  rename(value = 2)
+
+
+
+pa_block_intersections_df <- pa_block_intersections %>%
+  st_drop_geometry()
+
+nlcd_extract <- nlcd_extract %>%
+  left_join(pa_block_intersections_df, by="ID")
+
+
+
+landcover_pa <- nlcd_extract %>%
+  filter(value %in% c(11,21,22,23,24,31,41,42,43,52,71,81,82,90,95)) %>%
+  group_by(atlas_block, owner_id, value) %>%
+  summarize(class_cover = sum(weight), .groups="drop") %>%
+  group_by(atlas_block, owner_id) %>%
+  mutate(prop_cover = class_cover / sum(class_cover))
+
+
+landcover_pa_wide <- landcover_pa %>%
+  dplyr::select(atlas_block, owner_id, value, prop_cover) %>%
+  pivot_wider(
+    names_from = value,
+    values_from = prop_cover,
+    names_prefix = "nlcd_"
+  ) %>%
+  mutate(across(starts_with("nlcd_"), ~replace_na(.x,0)))
+
+
+
+landcover_pa_wide <- landcover_pa_wide %>%
+  mutate(
+    pa_forest_total = nlcd_41 + nlcd_42 + nlcd_43,
+    pa_devlow_total = nlcd_21 + nlcd_22,
+    pa_grass = nlcd_71,
+    pa_wetlands_total = nlcd_90 + nlcd_95,
+    devhigh_total = nlcd_23 + nlcd_24,
+    pasture = nlcd_81, 
+    cropland = nlcd_82
+  )
+
+landcover_pa_block <- landcover_pa_wide %>%
+  dplyr::select(
+    atlas_block, 
+    owner_id, 
+    pa_forest_total, 
+    pa_devlow_total,
+    pa_grass, 
+    pa_wetlands_total,
+    devhigh_total,
+    pasture, 
+    cropland) %>%
+  pivot_wider(
+    id_cols = atlas_block,
+    names_from = owner_id,
+    values_from = c(pa_forest_total, 
+                    pa_devlow_total,
+                    pa_grass, 
+                    pa_wetlands_total,
+                    devhigh_total,
+                    pasture, 
+                    cropland),
+    names_glue = "{owner_id}_{.value}"
+  ) %>%
+  mutate(across(where(is.numeric), ~replace_na(.x,0)))
+
+
+
+
+
+
+
+
+
+
+
+################################################## NEW OPT 1 ###################
+
+# Crop NLCD raster
+winlcd_2008_buffered <- Crop_mask_buffer(
+  nlcd_2008_raw,
+  wibba_outline,
+  buffer_dist = 1000
+)
+
+winlcd_2008_crs3071 <- terra::project(
+  winlcd_2008_buffered,
+  crs(blocks_all_sf),
+  method = "near"
+)
+
+winlcd_2008_rast <- raster::raster(winlcd_2008_crs3071)
+crs(winlcd_2008_rast) <- crs(winlcd_2008_crs3071)
+
+
+# Subset calcs to RLL blocks 
+blocks_rll_sf <- blocks_all_sf %>%
+  filter(atlas_block %in% blocks_rll)
+
+
+# Filter by managers of interest
+wipad_sf <- wipad_sf %>%
+  mutate(
+    owner_id = case_when(
+      Own_Name == "SDNR" ~ "sdnr",
+      Own_Name == "USFS" ~ "usfs",
+      Own_Name == "NGO" & Loc_Own == "The Nature Conservancy" ~ "tnc",
+      Own_Name == "NGO" & Loc_Own == "National Audubon Society" ~ "nas",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(owner_id))
+
+
+
+# Intersect blocks with PAs
+pa_block_intersections <- st_intersection(
+  blocks_rll_sf %>% select(atlas_block),
+  wipad_sf %>% select(owner_id)
+)
+
+
+
+# Extract landcover 
+Extract_landcover_pa <- function(nlcd_raster, polygons_sf, year_suffix) {
+  
+  nlcd_extract <- exactextractr::exact_extract(nlcd_raster, polygons_sf)
+  
+  valid_classes <- c(11,21,22,23,24,31,41,42,43,52,71,81,82,90,95)
+  
+  landcover_summary <- purrr::map2_dfr(
+    nlcd_extract,
+    seq_len(nrow(polygons_sf)),
+    ~{
+      tibble(
+        class = .x$value,
+        coverage = .x$coverage_fraction
+      ) %>%
+        filter(class %in% valid_classes) %>%
+        group_by(class) %>%
+        summarize(class_cover = sum(coverage, na.rm = TRUE), .groups = "drop") %>%
+        mutate(
+          atlas_block = polygons_sf$atlas_block[.y],
+          owner_id = polygons_sf$owner_id[.y],
+          percent_cover = 100 * class_cover / sum(class_cover)
+        )
+    }
+  )
+  
+  landcover_named <- landcover_summary %>%
+    select(atlas_block, owner_id, class, percent_cover) %>%
+    pivot_wider(
+      names_from = class,
+      values_from = percent_cover,
+      names_prefix = "nlcd_"
+    ) %>%
+    mutate(across(starts_with("nlcd_"), ~replace_na(.x,0)))
+  
+  landcover_named
+}
+
+
+# Run
+landcover_pa_2008 <- Extract_landcover_pa(
+  nlcd_raster = winlcd_2008_rast,
+  polygons_sf = pa_block_intersections,
+  year_suffix = "2008"
+)
+
+
+
+
+
+############################################################################################# OLD #################################################
 
 # Results in raw % land type coverage per block in landcover and modeling covariate df
 
@@ -62,14 +293,14 @@ Crop_mask_buffer <- function(raster_obj, polygon_sf, buffer_dist = 1000) {
 nlcd_2008_raw <- rast("data/maps/nlcd/NLCD_LndCov_2008.tif")
 
 # Clip, mask NLCD raster to buffered Atlas outline
-wi_nlcd_2008_buffered <- Crop_mask_buffer(nlcd_2008_raw, atlas_outline_crs3071, buffer_dist = 1000)
+winlcd_2008_buffered <- Crop_mask_buffer(nlcd_2008_raw, atlas_outline_crs3071, buffer_dist = 1000)
 
 # Reproject cropped wi rasters back to block crs (EPSG:3071)
-wi_nlcd_2008_crs3071 <- terra::project(wi_nlcd_2008_buffered, crs(blocks_comp_shp), method = "near")
+winlcd_2008_crs3071 <- terra::project(winlcd_2008_buffered, crs(blocks_comp_shp), method = "near")
 
 # Convert terra raster to raster object (exactextractr compatability)
-wi_nlcd_2008_rast <- raster::raster(wi_nlcd_2008_crs3071)
-crs(wi_nlcd_2008_rast) <- crs(wi_nlcd_2008_crs3071) # force crs
+winlcd_2008_rast <- raster::raster(winlcd_2008_crs3071)
+crs(winlcd_2008_rast) <- crs(winlcd_2008_crs3071) # force crs
 
 
 # --- FUNCTION --- #
@@ -145,7 +376,7 @@ Extract_landcover <- function(nlcd_raster, blocks_sf, year_suffix) {
 ### --- APPLY --- ###
 
 landcover_2008 <- Extract_landcover(
-  nlcd_raster = wi_nlcd_2008_rast,
+  nlcd_raster = winlcd_2008_rast,
   blocks_sf = blocks_comp_shp,
   year_suffix = "2008"
 )
@@ -159,7 +390,7 @@ future::plan(multisession, workers = 10) # set # cores for processing
 
 Parallel_land2008 <- future({ # Assign process to run in parallel
   Extract_landcover(
-    nlcd_raster = wi_nlcd_2008_rast,
+    nlcd_raster = winlcd_2008_rast,
     blocks_sf = blocks_comp_shp,
     year_suffix = "2008"
   )

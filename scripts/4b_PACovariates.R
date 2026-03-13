@@ -45,7 +45,10 @@ wipad_sf %>%
   count(Des_Tp, sort = TRUE)
 
 wipad_sf %>%
-  filter(GAP_Sts == "4") %>%
+  filter(
+    Own_Name == "USFS",
+    GAP_Sts == "4"
+    ) %>%
   count(Des_Tp, sort = TRUE)
 
 wipad_sf %>% # w/in NGO
@@ -239,8 +242,6 @@ covars_raw_rll <- covars_raw_rll %>%
 ### --- FILTERED PAD --- ###
 
 ### LAND OWNER ###
-# Calculate PA/block w/ no dissolving (allows for land owner filtering)
-
 
 # Define owner logic once
 wipad_sf <- wipad_sf %>%

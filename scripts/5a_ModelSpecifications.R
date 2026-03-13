@@ -33,6 +33,7 @@ library(AICcmodavg)
 library(MuMIn)
 options(na.action = "na.fail")
 library(arm)
+library(ncf)
 
 # Visualization
 library(ggplot2)
@@ -48,10 +49,6 @@ spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") # df
 spp_list <- unique(spp_zf_rll$common_name) # vector
 
 covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
-covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
-  mutate(sr_diff = sr_Atlas2 - sr_Atlas1,
-         grass_pasture_base = grassland_base + pasture_base,
-         grass_pasture_diff = grassland_diff + pasture_diff)
 covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
   mutate(across(
     .cols = -atlas_block,
@@ -104,7 +101,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Red-bellied Woodpecker"
+spp_name <- "Canada Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -415,8 +412,7 @@ corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "forest_total_base", "cropland_base",       
-                       "grass_pasture_base",  "grassland_diff", "pasture_diff")
+land_covs_reduced <- c()
 
 climate_covs_reduced
 climate_covs_reduced <- c()
@@ -1007,8 +1003,9 @@ summary(top_pa_models$RLL_ext)
 
 
 
-### MANAGER ### 
 
+
+### MANAGER ### 
 
 FitPAModels <- function(ref_df, response, data) {
   

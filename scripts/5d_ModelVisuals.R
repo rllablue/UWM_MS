@@ -34,21 +34,6 @@ wipad_sf <- st_transform(wipad_sf, 5070)
 st_crs(wipad_sf)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Join RAW PA values and atlas blocks
 pa_raw_df <- covars_raw_rll %>%
   dplyr::select(
@@ -73,7 +58,179 @@ summary(blocks_pa_sf$pa_prop)
 
 ### --- Visualizations --- ###
 
-## WIBBA ##
+### NLCD, DayMet ###
+# ENV covars per spp per block set
+
+# Blocks used for this species
+spp_name <- "Canada Jay"
+
+blocks_species <- spp_zf_rll %>%
+  filter(common_name == spp_name) %>%
+  dplyr::select(atlas_block) %>%
+  distinct()
+
+block_groups <- tibble(
+  atlas_block = unique(blocks_rll)
+) %>%
+  mutate(
+    block_set = case_when(
+      atlas_block %in% blocks_dnr ~ "DNR",
+      atlas_block %in% blocks_rll ~ "RLL"
+    )
+  )
+
+landcover_df <- covars_raw_rll %>%
+  inner_join(block_groups, by = "atlas_block") %>%
+  filter(atlas_block %in% blocks_species$atlas_block) %>%
+  left_join(
+    mod_data_all %>%
+      filter(common_name == spp_name) %>%
+      dplyr::select(atlas_block, transition_state),
+    by = "atlas_block"
+  )
+landcover_df <- landcover_df %>%
+  mutate(
+    response_pair = case_when(
+      transition_state %in% c("Colonization", "Absence") ~ "CA",
+      transition_state %in% c("Extinction", "Persistence") ~ "EP"
+    )
+  )
+
+
+
+land_base <- c("water_open_base", "shrub_scrub_base",
+                   "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
+                   "developed_lower_base", "developed_upper_base", "developed_total_base", 
+                   "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base", "forest_total_base", 
+                   "pasture_base", "cropland_base", "grassland_base", "grass_pasture_base",
+                   "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base")
+
+land_diff <- c("water_open_diff", "shrub_scrub_diff",
+               "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
+               "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
+               "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", "forest_total_diff", 
+               "pasture_diff", "cropland_diff", "grassland_diff", "grass_pasture_diff",
+               "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
+
+
+# Guilds
+forest = c("developed_total_base", "grass_pasture_base",
+           "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+           "wetlands_woody_base", "wetlands_herb_base",
+           
+           "forest_total_diff", "wetlands_total_diff")
+
+grass = c("developed_total_base","forest_total_base", "cropland_base",
+          "grassland_base", "pasture_base", "grass_pasture_base",
+          
+          "grassland_diff", "pasture_diff")
+
+marsh = c("water_open_base", "grass_pasture_base",
+          "developed_total_base", "forest_total_base", 
+          "wetlands_woody_base", "wetlands_herb_base",
+          
+          "grass_pasture_diff", "wetlands_total_diff")
+
+water = c("barren_land_base", "water_open_base", "developed_total_base", "grass_pasture_base", 
+          "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+          "wetlands_woody_base", "wetlands_herb_base",
+          
+          "water_open_diff", "forest_total_diff", 
+          "grass_pasture_diff", "wetlands_total_diff")
+
+
+general = c("barren_land_base", "water_open_base", "developed_total_base",
+            "forest_total_base", "grass_pasture_base", "wetlands_total_base",
+            
+            "forest_total_diff", "grass_pasture_diff", "wetlands_total_diff")
+
+
+
+clim <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+
+
+pa_raw <- c("pa_prop", "sdnr_prop", "usfs_prop", "tnc_prop", "nas_prop", "gap1_prop", "gap2_prop", "gap3_prop", "gap4_prop")
+
+
+
+
+landcover_long <- landcover_df %>%
+  dplyr::select(atlas_block, block_set, response_pair, all_of(forest)) %>%
+  pivot_longer(
+    cols = all_of(forest),
+    names_to = "landcover",
+    values_to = "proportion"
+  )
+
+
+# Faceted by block set, showing by response (Col or Ext)
+ggplot(landcover_long,
+       aes(x = proportion, fill = response_pair)) +
+  geom_histogram(
+    bins = 20,
+    alpha = 0.6,
+    position = "identity"
+  ) +
+  facet_grid(block_set ~ landcover, scales = "free") +
+  labs(
+    title = paste("Climate Distribution for", spp_name),
+    x = "Proportion of Atlas Block",
+    y = "Number of Blocks",
+    fill = "Response Pair"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+
+
+# By block set only
+ggplot(landcover_long, aes(x = proportion, fill = block_set)) +
+  geom_histogram(
+    bins = 20,
+    alpha = 0.6,
+    position = "identity"
+  ) +
+  facet_wrap(~landcover, scales = "free") +
+  labs(
+    title = paste("Land Cover Distribution for", spp_name),
+    x = "Proportion of Atlas Block",
+    y = "Number of Blocks",
+    fill = "Block Set"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+
+
+# By response only
+ggplot(landcover_long,
+       aes(x = proportion, fill = response_pair)) +
+  geom_histogram(
+    bins = 20,
+    alpha = 0.6,
+    position = "identity"
+  ) +
+  facet_wrap(~landcover, scales = "free") +
+  labs(
+    title = paste("Landcover Distribution for", spp_name),
+    x = "Proportion of Atlas Block",
+    y = "Number of Blocks",
+    fill = "Response Pair"
+  ) +
+  theme_minimal()
+
+
+
+
+
+
+
+
+
+
+### WIBBA ###
 
 # All blocks
 ggplot() +

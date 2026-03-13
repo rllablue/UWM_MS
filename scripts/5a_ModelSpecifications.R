@@ -101,7 +101,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Canada Warbler"
+spp_name <- "Grasshopper Sparrow"
 
 
 # Helper: Build filtered modeling dfs
@@ -412,10 +412,11 @@ corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c()
+land_covs_reduced <- c("developed_total_base", "forest_total_base", "cropland_base", "grassland_base", "pasture_base",
+                       "grassland_diff")
 
 climate_covs_reduced
-climate_covs_reduced <- c()
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -480,7 +481,7 @@ guild_key
 land_covs_reduced <- c()
 
 climate_covs_reduced
-climate_covs_reduced <- c()
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 

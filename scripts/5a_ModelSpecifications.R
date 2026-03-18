@@ -5,41 +5,47 @@
 ## --- LOAD PACKAGES --- ##
 
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(psych, usdm)
+pacman::p_load(
+  
+  # Core
+  dplyr,
+  tidyverse,
+  magrittr,
+  purrr,
+  stringr,
+  readxl,
+  
+  # Diagnostics
+  nnet,
+  stats,
+  broom,
+  corrplot,
+  car,
+  performance,
+  DescTools,
+  Metrics,
+  pROC,
+  rsample,
+  lme4,
+  pscl,
+  AICcmodavg,
+  MuMIn,
+  arm,
+  ncf,
+  psych, 
+  usdm,
+  
+  # Visualization
+  ggplot2,
+  viridis,
+  gt,
+  webshot2
+  
+)
+
+options(na.action = "na.fail") # required for MuMIn
 
 
-# Core
-library(dplyr)
-library(tidyverse)
-library(magrittr)
-library(purrr)
-library(stringr)
-library(readxl)
-
-# Diagnostics
-library(nnet)
-library(stats)
-library(broom)
-library(corrplot)
-library(car)
-library(performance)
-library(DescTools)
-library(Metrics)
-library(pROC)
-library(rsample)
-library(lme4)
-library(pscl)
-library(AICcmodavg)
-library(MuMIn)
-options(na.action = "na.fail")
-library(arm)
-library(ncf)
-
-# Visualization
-library(ggplot2)
-library(viridis)
-library(gt)
-library(webshot2)
 
 
 ### --- DATA --- ###
@@ -101,7 +107,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Grasshopper Sparrow"
+spp_name <- "Cerulean Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -260,7 +266,7 @@ guild_key <- list(
                
             "grass_pasture_diff", "wetlands_total_diff"), 
   
-  water = c("barren_land_base", "water_open_base", "developed_total_base", "grass_pasture_base", 
+  water = c("water_open_base", "developed_total_base", "grass_pasture_base", 
             "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
             "wetlands_woody_base", "wetlands_herb_base",
             
@@ -268,10 +274,10 @@ guild_key <- list(
             "grass_pasture_diff", "wetlands_total_diff"),
 
   
-  general = c("barren_land_base", "water_open_base", "developed_total_base",
+  general = c("developed_total_base",
               "forest_total_base", "grass_pasture_base", "wetlands_total_base",
                  
-              "forest_total_diff", "grass_pasture_diff", "wetlands_total_diff")
+              "forest_total_diff", "grass_pasture_diff", "wetlands_total_diff") # "water_open_base"
 
 )
 
@@ -412,10 +418,10 @@ corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "forest_total_base", "cropland_base", "grassland_base", "pasture_base",
-                       "grassland_diff")
+land_covs_reduced <- c("developed_total_base", "grass_pasture_base", "forest_deciduous_base", "forest_mixed_base",     
+                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
 
-climate_covs_reduced
+climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
 climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
@@ -478,10 +484,11 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <- c()
+land_covs_reduced <- c("developed_total_base", "grass_pasture_base", "forest_deciduous_base", "forest_mixed_base",     
+                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
 
-climate_covs_reduced
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
+climate_covs_reduced <- c("tmax_38yr")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -871,7 +878,7 @@ global_models <- lapply(names(merged_ref_covariates), function(key) {
 names(global_models) <- names(merged_ref_covariates)
 
 top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
-reference_global_models <- lapply(top_global_models, ExtractReferenceModel) # WIP: only contains env and effort covars
+reference_global_models <- lapply(top_global_models, ExtractReferenceModel) 
 
 
 
@@ -922,13 +929,148 @@ global_glm_summaries <- lapply(global_glm_models, summary)
 
 
 
+
+
 ### --- 4: GLOBAL PA MODELS, MODELING --- ###
-pa_covars <- c("pa_prop")
-gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
-own_covars <- c("sdnr_prop", "usfs_prop", "tnc_prop") # "nas_prop"
+
+pa_covar <- c("pa_prop")
+
+
+### BASE PA ###
+
+FitBasePAModels <- function(ref_df, response, data) {
+  
+  # Extract environmental RHS from reference model
+  env_rhs <- ref_df$Modnames[1]
+  
+  # Build candidate RHS strings
+  rhs_list <- list(
+    ENV = env_rhs,
+    ENV_PA = paste(env_rhs, "+ pa_prop")
+  )
+  
+  # Fit models
+  models <- lapply(rhs_list, function(rhs) {
+    glm(as.formula(paste(response, "~", rhs)),
+        data = data,
+        family = binomial)
+  })
+  
+  # Model selection table
+  ms_table <- MuMIn::model.sel(models, rank = "AICc")
+  
+  list(models = models, sel_table = ms_table)
+}
+
+
+
+##########################################################################
+
+
+ExtractPAFormula <- function(ref_df, response) {
+  
+  if (is.null(ref_df) || nrow(ref_df) == 0) {
+    stop("Empty reference model for response: ", response)
+  }
+  
+  as.formula(
+    paste(response, "~", ref_df$Modnames[1], "+ pa_prop")
+  )
+}
+
+
+ExtractPAFormula <- function(ref_df, response) {
+  
+  if (is.null(ref_df) || nrow(ref_df) == 0) {
+    stop("Empty reference model for response: ", response)
+  }
+  
+  as.formula(
+    paste(response, "~", ref_df$Modnames[1], "+ pa_prop")
+  )
+}
+
+
+pa_glm_models <- lapply(names(reference_global_models), function(nm) {
+  
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  glm(
+    formula = ExtractPAFormula(reference_global_models[[nm]], response),
+    data    = data_dir[[nm]],
+    family  = binomial
+  )
+})
+
+names(pa_glm_models) <- names(reference_global_models)
+
+
+pa_glm_summaries <- lapply(pa_glm_models, summary)
+
+
+vif_pa_models <- lapply(pa_glm_models, car::vif)
+
+
+##########################################################################
+
+
+RefitTopModel <- function(model_obj) {
+  
+  # Extract selection table
+  ms_table <- model_obj$sel_table
+  models   <- model_obj$models
+  
+  # Determine top model name (Δ = 0)
+  df <- as.data.frame(ms_table)
+  df$Modnames <- rownames(df)
+  top_name <- df$Modnames[df$delta == min(df$delta)][1]
+  
+  # Return the **fitted model object** directly
+  models[[top_name]]
+}
+
+
+
+
+pa_models <- lapply(names(reference_global_models), function(nm) {
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  FitPAModels(
+    ref_df = reference_global_models[[nm]],
+    response = response,
+    data = data_dir[[nm]]
+  )
+})
+
+names(pa_models) <- names(reference_global_models)
+
+# Extract top Δ=0 models
+top_pa_models <- lapply(pa_models, RefitTopModel)
+names(top_pa_models) <- names(pa_models)
+
+
+# Check VIFs
+vif_results_pa <- lapply(top_pa_models, car::vif)
+
+# Quick summary example
+summary(top_pa_models$DNR_col)
+summary(top_pa_models$DNR_ext)
+summary(top_pa_models$RLL_col)
+summary(top_pa_models$RLL_ext)
+
+
+
+
+
+
+
+
 
 
 ### GAP STATUS ###
+
+gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
+
 
 FitPAModels <- function(ref_df, response, data) {
   
@@ -1006,7 +1148,13 @@ summary(top_pa_models$RLL_ext)
 
 
 
+
+
+
 ### MANAGER ### 
+
+own_covars <- c("sdnr_prop", "usfs_prop", "tnc_prop") # "nas_prop"
+
 
 FitPAModels <- function(ref_df, response, data) {
   

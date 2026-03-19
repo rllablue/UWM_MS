@@ -11,16 +11,12 @@ blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.s
   rename(atlas_block = BLOCK_ID)
 crs(blocks_all_sf)
 
+
+
+
+
 blocks_background <- blocks_all_sf %>%
   filter(atlas_block %in% union(blocks_rll, blocks_dnr))
-
-
-# PAD geometry
-wipad_sf <- st_read("data/maps/wipad/pad_wi_polygons.shp") ######### NO NO NO NO
-crs(wipad_sf)
-wipad_sf <- st_transform(wipad_sf, 3071)
-
-
 
 # PAD geometry
 st_layers("data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb")
@@ -62,7 +58,7 @@ summary(blocks_pa_sf$pa_prop)
 # ENV covars per spp per block set
 
 # Blocks used for this species
-spp_name <- "Canada Jay"
+spp_name <- "Cerulean Warbler"
 
 blocks_species <- spp_zf_rll %>%
   filter(common_name == spp_name) %>%
@@ -91,8 +87,8 @@ landcover_df <- covars_raw_rll %>%
 landcover_df <- landcover_df %>%
   mutate(
     response_pair = case_when(
-      transition_state %in% c("Colonization", "Absence") ~ "CA",
-      transition_state %in% c("Extinction", "Persistence") ~ "EP"
+      transition_state %in% c("Colonization", "Absence") ~ "Col/Abs",
+      transition_state %in% c("Extinction", "Persistence") ~ "Ext/Per"
     )
   )
 
@@ -663,7 +659,7 @@ plot_prediction_map("DNR_ext")
 ### SPECIES-RESPONSE MAPS ###
 
 blocks_spp_sf <- blocks_all_sf %>%
-  left_join(spp_blocks, by = "atlas_block")
+  left_join(blocks_species, by = "atlas_block")
 
 blocks_rll_sf <- blocks_spp_sf %>%
   filter(atlas_block %in% blocks_rll)

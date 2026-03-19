@@ -1072,6 +1072,187 @@ summary(top_pa_models$RLL_ext)
 gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
 
 
+###########################################################################
+
+
+MakeSubsets <- function(vars) {
+  
+  unlist(
+    lapply(0:length(vars), function(k) {
+      combn(vars, k, simplify = FALSE)
+    }),
+    recursive = FALSE
+  )
+}
+
+
+FitPAGapModels <- function(ref_df, response, data) {
+  
+  # Base environmental structure
+  env_rhs <- ref_df$Modnames[1]
+  
+  # Base PA model (always included)
+  base_rhs <- paste(env_rhs, "+ pa_prop")
+  
+  # All GAP combinations
+  gap_sets <- MakeSubsets(gap_covars)
+  
+  # Build RHS formulas
+  rhs_list <- lapply(gap_sets, function(gaps) {
+    if (length(gaps) == 0) {
+      base_rhs
+    } else {
+      paste(base_rhs, "+", paste(gaps, collapse = " + "))
+    }
+  })
+  
+  # Name models nicely
+  names(rhs_list) <- sapply(gap_sets, function(gaps) {
+    if (length(gaps) == 0) return("PA_only")
+    paste("PA", paste(gaps, collapse = "_"), sep = "_")
+  })
+  
+  # Fit models
+  models <- lapply(rhs_list, function(rhs) {
+    glm(as.formula(paste(response, "~", rhs)),
+        data = data,
+        family = binomial)
+  })
+  
+  # Model selection
+  ms_table <- MuMIn::model.sel(models, rank = "AICc")
+  
+  list(models = models, sel_table = ms_table)
+}
+
+
+
+pa_sig_models <- c("RLL_col")
+
+pa_gap_models <- lapply(pa_sig_models, function(nm) {
+  
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  FitPAGapModels(
+    ref_df = reference_global_models[[nm]],
+    response = response,
+    data = data_dir[[nm]]
+  )
+})
+
+names(pa_gap_models) <- pa_sig_models
+
+
+
+RefitTopModel <- function(model_obj) {
+  
+  ms_table <- model_obj$sel_table
+  models   <- model_obj$models
+  
+  df <- as.data.frame(ms_table)
+  df$Modnames <- rownames(df)
+  
+  top_name <- df$Modnames[which.min(df$delta)][1]
+  
+  models[[top_name]]
+}
+
+
+
+
+top_pa_gap_models <- lapply(pa_gap_models, RefitTopModel)
+
+# Check results
+summary(top_pa_gap_models$RLL_col)
+car::vif(top_pa_gap_models$RLL_col)
+
+
+pa_vars <- c("pa_prop", "gap1_prop", "gap2_prop", "gap3_prop")
+
+cor_mat <- cor(
+  data_dir$RLL_col[, pa_vars],
+  use = "complete.obs"
+)
+
+round(cor_mat, 3)
+
+corrplot::corrplot(
+  cor_mat,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8,
+  addCoef.col = "black"
+)
+
+
+
+pa_only <- subset(data_dir$RLL_col, pa_prop > 0)
+
+cor_pa_only <- cor(
+  pa_only[, pa_vars],
+  use = "complete.obs"
+)
+
+round(cor_pa_only, 3)
+
+corrplot::corrplot(
+  cor_pa_only,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8,
+  addCoef.col = "black"
+)
+
+
+pairs(
+  data_dir$RLL_col[, pa_vars],
+  pch = 16,
+  cex = 0.5
+)
+
+
+
+
+# GAP-only Mod
+gap_only_mod <- glm(
+  formula = col ~ sr_diff + tmax_38yr + developed_total_base + forest_deciduous_base + forest_mixed_base + 
+                  gap1_prop + gap2_prop + gap3_prop,
+  data    = mod_col_rll,
+  family  = binomial)
+
+summary(gap_only_mod)
+
+
+
+
+
+
+mod_vars <- c("sr_diff", "tmax_38yr", "developed_total_base", "forest_deciduous_base", "forest_mixed_base", "pa_prop",
+                "gap1_prop", "gap2_prop", "gap3_prop")
+
+cor_mat_full <- cor(
+  data_dir$RLL_col[, mod_vars],
+  use = "complete.obs"
+)
+
+round(cor_mat_full, 3)
+
+corrplot::corrplot(
+  cor_mat_full,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8,
+  addCoef.col = "black"
+)
+
+
+
+
+#############################################################################
+
 FitPAModels <- function(ref_df, response, data) {
   
   # Extract environmental RHS from reference model
@@ -1105,8 +1286,7 @@ RefitTopModel <- function(model_obj) {
   ms_table <- model_obj$sel_table
   models   <- model_obj$models
   
-  # Determine top model name (Δ = 0)
-  df <- as.data.frame(ms_table)
+  # Determine top model name (Δ = 0) 
   df$Modnames <- rownames(df)
   top_name <- df$Modnames[df$delta == min(df$delta)][1]
   
@@ -1230,7 +1410,7 @@ summary(top_pa_models$RLL_ext)
 
 
 
-### VISUALIZATIONS ###
+########################## VISUALIZATIONS ######################################
 
 MakeResponseCurve_fixed <- function(model_col,
                                     model_ext,
@@ -1425,7 +1605,7 @@ ggplot(curve_rll_pa, aes(x = x)) +
 
 
 
-##############################################################################
+######################## MODEL COMPARISON ###################################
 
 ### --- Model Comparison --- ###
 # McFadden Pseudo-R2 b/c binomial glm
@@ -1507,726 +1687,3 @@ ll_comp %>%
     x = NULL
   ) +
   theme_minimal()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-########################## FOSSILS #############################################
-
-## using AIcmodavg
-
-
-### Helper: Build main effects formulas
-BuildGlobalRHS <- function(selected_covariates,
-                           required = effort_covar,
-                           optional = pa_covar) {
-  
-  selected_covariates <- unique(c(selected_covariates, optional))
-  required <- unique(required)
-  optional <- setdiff(selected_covariates, required)
-  
-  rhs_list <- list()
-  rhs_list[[1]] <- paste(required, collapse = " + ")
-  
-  if (length(optional) > 0) {
-    rhs_optional <- unlist(
-      lapply(seq_along(optional), function(k) {
-        combn(optional, k , FUN = function(x) {
-          paste(c(required, x), collapse = " + ")
-        })
-      }),
-      use.names = FALSE
-    )
-    rhs_list <- c(rhs_list, rhs_optional)
-  }
-  
-  unique(rhs_list)
-}
-
-
-
-FitGlobalModels <- function(response,
-                            data,
-                            covariates,
-                            required = effort_covar,
-                            optional = pa_covar,
-                            family = binomial,
-                            include_null = TRUE) {
-  
-  rhs_terms <- BuildGlobalRHS(
-    selected_covariates = covariates,
-    required = required,
-    optional = optional
-  )
-  
-  if (length(rhs_terms) == 0) {
-    rhs_terms <- paste(required, collapse = " + ")
-  }
-  
-  formulas <- lapply(rhs_terms, function(rhs) {
-    as.formula(paste(response, "~", rhs))
-  })
-  
-  modnames <- rhs_terms
-  
-  if (include_null) {
-    formulas <- c(list(glm(as.formula(paste(response, "~ 1")), data = data, family = family)), formulas)
-    modnames <- c("NULL", rhs_terms)
-  } else {
-    modnames <- rhs_terms
-  }
-  
-  models <- lapply(formulas, function(f) {
-    glm(f, data = data, family = family)
-  }) 
-  
-  names(models) <- modnames
-  
-  aictab(
-    cand.set = models,
-    modnames = modnames,
-    sort = TRUE
-  )
-}
-
-
-
-# Apply: to all blocks x response subsets
-global_models <- lapply(names(merged_ref_covariates), function(key) {
-  
-  FitGlobalModels(
-    response = strsplit(key, "_")[[1]][2],
-    data = data_dir[[key]],
-    covariates = merged_ref_covariates[[key]],
-    required = effort_covar,
-    optional = pa_covar,
-    family = binomial
-  )
-})
-
-
-names(global_models) <- names(merged_ref_covariates)
-
-top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
-reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
-
-
-
-##################################
-
-
-
-
-
-
-
-
-# WIP update to main effects-only global models (BROKEN)
-
-# Function: Build formula for main effects models
-BuildGlobalRHS <- function(covariates,
-                           required = effort_covar,
-                           optional = pa_covar) {
-  
-  covariates <- unique(c(covariates, optional))
-  required <- unique(required)
-  optional <- setdiff(covariates, required)
-  
-  rhs_list <- list()
-  
-  rhs_list[[1]] <- paste(required, collapse = " + ")
-  
-  if (length(optional) > 0) {
-    rhs_optional <- unlist(
-      lapply(seq_along(optional), function(k) {
-        combn(optional, k , FUN = function(x) {
-          paste(c(required, x), collapse = " + ")
-        })
-      }),
-      use.names = FALSE
-    )
-    rhs_list <- c(rhs_list, rhs_optional)
-  }
-  unique(rhs_list)
-}
-
-
-
-FitGlobalModels <- function(response,
-                            data,
-                            covariates,
-                            required = effort_covar,
-                            optional = pa_covar,
-                            family = binomial,
-                            include_null = TRUE) {
-  
-  rhs_terms <- BuildGlobalRHS(
-    covariates = covariates,
-    required = required,
-    optional = optional
-  )
-  
-  if (length(rhs_terms) == 0) {
-    rhs_terms <- paste(required, collapse = " + ")
-  }
-  
-  formulas <- lapply(rhs_terms, function(rhs) {
-    as.formula(paste(response, "~", rhs))
-  })
-  
-  modnames <- rhs_terms
-  
-  if (include_null) {
-    formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
-    modnames <- c("NULL", rhs_terms)
-  }
-  
-  models <- lapply(formulas, function(f) {
-    glm(f, data = data, family = family)
-  })
-  
-  names(models) <- modnames
-  
-  aictab(
-    cand.set = models,
-    modnames = modnames,
-    sort = TRUE
-  )
-}
-
-
-
-# Apply: to all blocks x response subsets
-global_models <- lapply(names(merged_ref_covariates), function(key) {
-  
-  FitGlobalModels(
-    response = strsplit(key, "_")[[1]][2],
-    data = data_dir[[key]],
-    covariates = merged_ref_covariates[[key]],
-    required = effort_covar,
-    optional = pa_covar,
-    family = binomial
-  )
-})
-
-names(global_models) <- names(merged_ref_covariates)
-
-top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
-
-reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
-
-
-
-
-
-
-
-
-
-
-
-
-
-### Model workflow incl interaction terms (1.29.26)
-pa_int_covs <- c("tmax_38yr_z",
-                 "prcp_38yr_z",
-                 "tmax_diff_z",
-                 "tmin_diff_z",
-                 "prcp_diff_z",
-                 "developed_total_base_z",
-                 "forest_deciduous_base_z", 
-                 "forest_evergreen_base_z", 
-                 "forest_mixed_base_z",
-                 "wetlands_woody_base_z",
-                 "forest_total_diff_z"
-)
-
-
-
-BuildGlobalIntRHS <- function(selected_covariates,
-                           effort = effort_covar,
-                           pa = pa_covar,
-                           pa_int_covs) {
-  
-  # Partition-selected covariates for this block x response
-  selected_covariates <- unique(selected_covariates)
-  
-  # Interaction-eligible covariates that were ALSO selected upstream
-  int_covs <- intersect(selected_covariates, pa_int_covs)
-  
-  rhs_list <- character(0)
-  
-  # ---- 1. Additive (no PA unless selected upstream) ----
-  base_main <- unique(c(effort, setdiff(selected_covariates, pa)))
-  rhs_list <- c(rhs_list, paste(base_main, collapse = " + "))
-  
-  # ---- 2. Additive with PA only if PA was selected ----
-  if (pa %in% selected_covariates) {
-    rhs_list <- c(
-      rhs_list,
-      paste(unique(c(base_main, pa)), collapse = " + ")
-    )
-  }
-  
-  # ---- 3. Interaction models (enforce hierarchy) ----
-  if (length(int_covs) > 0) {
-    for (x in int_covs) {
-      rhs_list <- c(
-        rhs_list,
-        paste(
-          unique(c(base_main, pa, x)),
-          collapse = " + "
-        ) %>%
-          paste(paste0(pa, ":", x), sep = " + ")
-      )
-    }
-  }
-  
-  unique(rhs_list)
-}
-
-
-
-FitGlobalModels <- function(response,
-                            data,
-                            covariates,
-                            effort = effort_covar,
-                            pa_int_covs,
-                            family = binomial,
-                            include_null = TRUE) {
-  
-  rhs_terms <- BuildGlobalRHS(
-    selected_covariates = covariates,
-    effort = effort,
-    pa = pa_covar,
-    pa_int_covs = pa_int_covs
-  )
-  
-  formulas <- lapply(rhs_terms, function(rhs) {
-    as.formula(paste(response, "~", rhs))
-  })
-  
-  if (include_null) {
-    formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
-    modnames <- c("NULL", rhs_terms)
-  } else {
-    modnames <- rhs_terms
-  }
-  
-  models <- lapply(formulas, function(f) {
-    glm(f, data = data, family = family)
-  })
-  
-  names(models) <- modnames
-  
-  aictab(
-    cand.set = models,
-    modnames = modnames,
-    sort = TRUE
-  )
-}
-
-
-# Apply: to all blocks x response subsets
-global_models <- lapply(names(merged_ref_covariates), function(key) {
-  
-  FitGlobalModels(
-    response = strsplit(key, "_")[[1]][2],
-    data = data_dir[[key]],
-    covariates = merged_ref_covariates[[key]],
-    pa_int_covs = pa_int_covs,
-    family = binomial
-  )
-})
-
-names(global_models) <- names(merged_ref_covariates)
-
-top_global_models <- lapply(global_models, ExtractTopModels, delta = 2)
-
-reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Quick diagnostics: number of top models in each set and head()
-lapply(Top_global_models, function(df) {
-  list(n_models = nrow(df), head = if (nrow(df)>0) head(df, 6) else df)
-})
-
-
-
-# Identify uninformative parameters #
-### Compare K sets among all models w/ delta < 2 
-
-# Helper: Get Reference Model (lowest AICc, smallest K as tie-breaker)
-GetReferenceModel <- function(df) {
-  df[order(df$AICc, df$K), ][1, ]
-}
-
-# Apply
-ReferenceModels <- lapply(Top_models_list, GetReferenceModel)
-ReferenceModels
-
-# Helper: flag uninformative models 
-FlagUninformativeModels <- function(df, aicc_tol = 2) {
-  # Reference model: lowest AICc, tie-break with smallest K
-  ref <- GetReferenceModel(df)
-  
-  df$extra_K <- df$K - ref$K
-  df$aicc_gain <- ref$AICc - df$AICc
-  
-  df$uninformative_model <- with(
-    df,
-    extra_K > 0 & aicc_gain < aicc_tol
-  )
-  
-  df
-}
-
-
-# Helper: extract parameters from automated model construction
-ExtractTerms <- function(formula_string) {
-  rhs <- gsub(".*~", "", formula_string)
-  terms <- trimws(unlist(strsplit(rhs, "\\+")))
-  terms <- terms[terms != "(Intercept)" & terms != "1"]
-  terms
-}
-
-
-# Helper: build sumamry table comparing candidate moedls to refrence model
-GetTermSupport <- function(df, always_keep = c("pa_percent_z", "sr_Diff_z")) {
-  
-  df <- FlagUninformativeModels(df)
-  ref_model <- GetReferenceModel(df)
-  ref_terms <- ExtractTerms(ref_model$formula)
-  
-  term_df <- do.call(
-    rbind,
-    lapply(seq_len(nrow(df)), function(i) {
-      terms <- ExtractTerms(df$formula[i])
-      data.frame(
-        term = terms,
-        model_id = df$model_id[i],
-        K = df$K[i],
-        AICc = df$AICc[i],
-        uninformative_model = df$uninformative_model[i],
-        in_reference = terms %in% ref_terms,
-        stringsAsFactors = FALSE
-      )
-    })
-  )
-  
-  # Aggregate counts per term
-  agg <- aggregate(
-    cbind(n_models = model_id, n_uninf = uninformative_model) ~ term,
-    data = term_df,
-    FUN = function(x) if(is.logical(x)) sum(x) else length(x)
-  )
-  
-  # Include reference info (does this term appear in reference model?)
-  agg$in_reference <- agg$term %in% ref_terms
-  
-  # Classify as uninfomrative
-  agg$category <- "Supported"
-  agg$category[!agg$in_reference & agg$n_models == agg$n_uninf] <- "Uninformative"
-  
-  # force keep PA and SR terms as Supported
-  agg$category[agg$term %in% always_keep] <- "Supported"
-  
-  # Sort for readability: reference terms first
-  agg <- agg[order(!agg$in_reference, -agg$n_models), ]
-  
-  agg
-}
-
-# Apply
-Supported_terms_clean <- lapply(Top_models_list, GetTermSupport)
-lapply(Supported_terms_clean, head, 10)
-
-# Helper: build summary table for best candidate moedl parameters
-
-GetBestCandidateTerms <- function(supported_terms_list, keep_terms = c("pa_percent_z", "sr_Diff_z")) {
-  
-  lapply(supported_terms_list, function(term_df) {
-    # Always keep specified terms
-    term_df$category <- as.character(term_df$category)
-    term_df$category[term_df$term %in% keep_terms] <- "Supported"
-    
-    # Keep only supported terms
-    best_terms <- term_df[term_df$category == "Supported", , drop = FALSE]
-    
-    # Flag interactions separately
-    best_terms$interaction <- grepl(":", best_terms$term)
-    
-    # Arrange: interactions last, alphabetically
-    best_terms <- best_terms[order(best_terms$interaction, best_terms$term), ]
-    
-    # Return relevant columns
-    best_terms[, c("term", "n_models", "interaction", "category")]
-  })
-}
-
-# Apply
-BestCandidateTerms <- GetBestCandidateTerms(Supported_terms_clean)
-lapply(BestCandidateTerms, head, 10)
-
-
-
-### --- MODEL EXAMINATION, DIAGNOSTICS --- ###
-### Use reference models for each block set, response combo 
-# Can't use ggfortify::autoplot for non-Gaussian; insetad, arm::binnedplot() for residual plots,
-# performance::check_outliers 
-
-# Run, diagnose reference models
-# RLL, ColABs
-rll_colabs_ref <- glm(col_abs ~
-                        cropland_base_z + grassland_base_z + pa_percent_z + pasture_base_z + 
-                        pasture_crop_diff_z + prcp_38yr_z + shrub_scrub_base_z + sr_Diff_z + 
-                        tmax_38yr_z + tmin_diff_z + cropland_base_z:pa_percent_z + 
-                        pa_percent_z:pasture_base_z + pa_percent_z:tmax_38yr_z,
-                      data = mod_colabs_rll_z,
-                      family = "binomial"
-)
-
-summary(rll_colabs_ref)
-binnedplot(
-  x = fitted(rll_colabs_ref),
-  y = residuals(rll_colabs_ref, type = "response")
-)
-check_outliers(rll_colabs_ref)
-
-
-# RLL, ExtPer
-rll_extper_ref <- glm(ext_per ~
-                        cropland_base_z + grassland_base_z + pa_percent_z + 
-                        pasture_base_z + prcp_38yr_z + shrub_scrub_base_z + 
-                        sr_Diff_z + tmax_38yr_z + tmax_diff_z + 
-                        grassland_base_z:pa_percent_z + pa_percent_z:sr_Diff_z + 
-                        pa_percent_z:tmax_38yr_z,
-                      data = mod_extper_rll_z,
-                      family = "binomial"
-)
-
-summary(rll_extper_ref)
-binnedplot(
-  x = fitted(rll_extper_ref),
-  y = residuals(rll_extper_ref, type = "response")
-)
-check_outliers(rll_extper_ref)
-
-
-
-
-
-
-# DNR, ColAbs
-dnr_colabs_ref <- glm(col_abs ~
-                        pa_percent_z +
-                        cropland_base_z + developed_total_base_z + forest_total_base_z + 
-                        pasture_base_z + pasture_crop_diff_z + prcp_38yr_z + sr_Diff_z + tmin_diff_z,
-                      data = mod_colabs_dnr_z,
-                      family = "binomial"                 
-)
-
-summary(dnr_colabs_ref)
-binnedplot(
-  x = fitted(dnr_colabs_ref),
-  y = residuals(dnr_colabs_ref, type = "response")
-)
-check_outliers(dnr_colabs_ref)
-
-
-# DNR, ExtPer
-dnr_extper_ref <- glm(ext_per ~
-                        cropland_base_z + grassland_base_z + pa_percent_z + 
-                        pasture_base_z + shrub_scrub_base_z + shrub_scrub_diff_z + 
-                        sr_Diff_z + tmax_38yr_z + tmax_diff_z + cropland_base_z:pa_percent_z + 
-                        grassland_base_z:pa_percent_z + pa_percent_z:pasture_base_z + 
-                        pa_percent_z:shrub_scrub_base_z + pa_percent_z:sr_Diff_z,
-                      data = mod_extper_dnr_z,
-                      family = "binomial"                      
-)
-
-summary(dnr_extper_ref)
-binnedplot(
-  x = fitted(dnr_extper_ref),
-  y = residuals(dnr_extper_ref, type = "response")
-)
-check_outliers(dnr_extper_ref)
-
-
-# Visualize PA Effects #
-# Consolidate reference models
-ref_models <- list(
-  "RLL Colonization" = rll_colabs_ref,
-  "RLL Extinction"   = rll_extper_ref,
-  "DNR Colonization" = dnr_colabs_ref,
-  "DNR Extinction"   = dnr_extper_ref
-)
-
-# Extract PA coefficient value, se
-pa_effects <- lapply(names(ref_models), function(mod_name){
-  tidy_mod <- broom::tidy(ref_models[[mod_name]])
-  
-  # PA main efffects only
-  pa_row <- tidy_mod %>% filter(term == "pa_percent_z") %>%
-    mutate(Model = mod_name)
-  
-  return(pa_row)
-}) %>% bind_rows()
-
-
-# Visualize: Coefficient plot (PA main effects)
-ggplot(pa_effects, aes(x = Model, y = estimate, ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
-  geom_pointrange(color = "orange", size = 1) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
-  labs(
-    x = "Model",
-    y = "Standardized Effect of Protected Area",
-    caption = "Figure 1. Standardzied main effect of protected area (PA) on apparent colonization and extinction 
-    for the Eastern Meadowlark among two survey unit subsets. Points represent effect estimates for each model, 
-    with horizantal lines representing 95% confidence intervals."
-  ) +
-  theme_minimal(base_size = 13) +
-  coord_flip() + # flip for horizontal readability
-  theme(
-    axis.title.x = element_text(margin = margin(t = 15)),
-    axis.title.y = element_text(margin = margin(r = 15)),
-    plot.caption = element_text(hjust = 0.5, size = 11, margin = margin(t = 15))
-  ) 
-
-
-
-# Assumption Checking #
-# Helper: extract binned residuals to create a single, faceted binned reidual plot for all model results
-# Helper function: compute binned residuals
-ComputeBinnedResiduals <- function(model, label, bins = 20) {
-  df <- tibble(
-    fitted = fitted(model),
-    resid  = residuals(model, type = "response")
-  )
-  
-  # create equal-sized bins of fitted probabilities
-  df <- df %>%
-    mutate(bin = cut(fitted,
-                     breaks = quantile(fitted, probs = seq(0, 1, length.out = bins + 1)),
-                     include.lowest = TRUE)) %>%
-    group_by(bin) %>%
-    summarise(
-      fitted_mean = mean(fitted, na.rm = TRUE),
-      resid_mean  = mean(resid, na.rm = TRUE),
-      resid_se    = sd(resid, na.rm = TRUE)/sqrt(n()),
-      .groups = "drop"
-    ) %>%
-    mutate(model = label)
-  
-  return(df)
-}
-
-
-binned_all <- bind_rows(
-  ComputeBinnedResiduals(rll_colabs_ref, "RLL – Colonization–Absence"),
-  ComputeBinnedResiduals(rll_extper_ref, "RLL – Extinction–Persistence"),
-  ComputeBinnedResiduals(dnr_colabs_ref, "DNR – Colonization–Absence"),
-  ComputeBinnedResiduals(dnr_extper_ref, "DNR – Extinction–Persistence")
-)
-
-
-# construct faceted plot
-ggplot(binned_all, aes(x = fitted_mean, y = resid_mean)) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  geom_point(size = 2) +
-  geom_errorbar(aes(ymin = resid_mean - resid_se,
-                    ymax = resid_mean + resid_se), width = 0.02) +
-  facet_wrap(~ model, ncol = 2) +
-  labs(
-    x = "Mean fitted probability",
-    y = "Mean binned residual",
-    caption = "Figure S2. Binned residual diagnostic plots for each block set x response logistic model combination.
-    Each point represents the mean residual within a group of fitted probabilities, with vertical error bars representing
-    a +/- 1 standard error of the mean residual."
-  ) +
-  theme_minimal(base_size = 13) +
-  theme(
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(face = "bold"),
-    axis.title.x = element_text(margin = margin(t = 15)),
-    axis.title.y = element_text(margin = margin(r = 15)),
-    plot.caption = element_text(hjust = 0, size = 10, margin = margin(t = 15))
-  ) 
-
-
-### --- OTHER SUPPLEMENTAL PLOTS --- ###
-
-# Species Richness #
-### Histogram of SR diff between RLL and NDR comp block sets
-
-# Data
-srdiff_rll <- covars_raw_rll %>% # RLL blocks
-  filter(atlas_block %in% blocks_rll) %>%
-  dplyr::select(sr_Diff) %>%
-  mutate(source = "rll")
-
-srdiff_dnr <- covars_raw_rll %>% # DNR blocks
-  filter(atlas_block %in% blocks_dnr) %>%
-  dplyr::select(sr_Diff) %>%
-  mutate(source = "dnr")
-
-srdiff_hist_data <- bind_rows(srdiff_rll, srdiff_dnr) # combine
-
-# Plot
-ggplot(srdiff_hist_data, aes(x = sr_Diff, fill = source)) +
-  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
-  scale_fill_manual(
-    values = c("rll" = "orange", "dnr" = "steelblue"),
-    labels = c("DNR", "RLL")
-  ) +
-  theme_minimal(base_size = 13) +
-  labs(
-    x = "Species Richness Difference (Atlas 2 - Atlas 1)",
-    y = "Count",
-    fill = "Block Set",
-    caption = "Figure S1. Distribution of difference in species richness between Wisconsin Breeding Bird Atlas 1 (1995-2000) and 2 (2015-2019) between two
-    different survey block subsets (All Blocks, N = 7056; RLL, n = 2535; DNR, n = 858). Overall, blocks in the second Atlas were surveyed more comprehensively than 
-    in Atlas 1, resulting in higher-per-block species richness in Atlas 2 generally. The minimally filtered RLL block set retains a significant number of 
-    survey units with high species richness differences compared to the heavily filtered DNR block set, which largely controlled for these coverage discrepancies."
-  ) +
-  theme(
-    axis.title.x = element_text(margin = margin(t = 15)),
-    axis.title.y = element_text(margin = margin(r = 15)),
-    plot.caption = element_text(hjust = 0, size = 10, margin = margin(t = 15))
-  )

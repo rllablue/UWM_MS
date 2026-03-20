@@ -5,23 +5,27 @@
 ### --- NOTES --- ###
 
 # 12/14/2025: update binned covars to group grass_pasture_crop
+# 3/20/2026: must update to create grass_pasture bin, do not bin crop
 
 ## --- PACKAGES --- ##
 
-library(dplyr)
-library(tidyr)
-library(lubridate)
-library(purrr)
-library(stringr)
-library(ggplot2)
-library(ggridges)
-library(ggsignif)
-library(sf)
-library(raster)
-library(terra)
-library(exactextractr)
-library(GGally)
-library(corrplot)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(
+  dplyr,
+  tidyr,
+  lubridate,
+  purrr,
+  stringr,
+  ggplot2,
+  ggridges,
+  ggsignif,
+  sf,
+  raster,
+  terra,
+  exactextractr,
+  GGally,
+  corrplot
+)
 
 
 ## -- DATAFRAMES --- ###

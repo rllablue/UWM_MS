@@ -1,33 +1,77 @@
-library(sf)
-library(dplyr)
-library(ggplot2)
-library(RColorBrewer)
+#############
+### SETUP ###
+#############
+
+### --- LOAD PACKAGES --- ###
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(
+  sf,
+  dplyr,
+  ggplot2,
+  viridis,
+  viridisLite,
+  RColorBrewer)
 
 
-### --- BASE FILES --- ###
 
-# Atlas blocks geometry
-blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
+### --- FLEXIBLE SPECS --- ###
+
+# Species to map #
+spp_name <- "Cerulean Warbler"
+
+
+
+### --- GEOMETRY FILES --- ###
+
+# Atlas Block Geometry #
+# Native CRS: WI Transverse Mercator, EPSG:3071
+
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
   rename(atlas_block = BLOCK_ID)
 crs(blocks_all_sf)
 
+blocks_rll_sf <- blocks_all_sf %>%
+  filter(atlas_block %in% blocks_rll)
+crs(blocks_rll_sf)
+
+blocks_dnr_sf <- blocks_all_sf %>%
+  filter(atlas_block %in% blocks_dnr)
+crs(blocks_dnr_sf)
+
+
+# transformation, CRS: Conus Albers, NAD83, EPSG:5070
+blocks_all_sf <- st_transform(blocks_all_sf, 5070)
+blocks_rll_sf <- st_transform(blocks_rll_sf, 5070)
+blocks_dnr_sf <- st_transform(blocks_dnr_sf, 5070)
+
+st_crs(blocks_all_sf)
+st_crs(blocks_rll_sf)
+st_crs(blocks_dnr_sf)
 
 
 
+# PAD Geometry #
+# Native CRS: USA Contiguous Albers Equal Area Conic [USGS], NAD83
 
-blocks_background <- blocks_all_sf %>%
-  filter(atlas_block %in% union(blocks_rll, blocks_dnr))
-
-# PAD geometry
 st_layers("data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb")
 wipad_sf <- st_read(
   "data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb",
   layer = "PADUS4_1Fee_State_WI"
 )
 names(wipad_sf)
+st_crs(wipad_sf)
 
+
+# transformation, CRS: Conus Albers, NAD83, EPSG:5070
 wipad_sf <- st_transform(wipad_sf, 5070)
 st_crs(wipad_sf)
+
+
+
+
+
+### --- DATA ASSOCIATIONS --- ###
 
 
 # Join RAW PA values and atlas blocks
@@ -42,7 +86,7 @@ pa_raw_df <- covars_raw_rll %>%
   )
 
 # %>% mutate(pa_percent = pa_prop * 100)
-  
+
 
 blocks_pa_sf <- blocks_all_sf %>%
   left_join(pa_raw_df, by = "atlas_block")
@@ -52,13 +96,165 @@ summary(blocks_pa_sf$pa_prop)
 
 
 
-### --- Visualizations --- ###
+
+
+
+
+
+
+
+### --- VISUALIZATIONS --- ###
+
+# BASE MAPS #
+
+# Atlas Blocks #
+ggplot() +
+  geom_sf(data = blocks_all_sf, # blocks_rll_sf, blocks_dnr_sf
+          fill = NA,
+          color = "grey40",
+          linewidth = 0.2) +
+  theme_void() +
+  labs(title = "Wisconsin Breeding Bird Atlas Blocks")
+
+
+# Protected Area (all) #
+ggplot() +
+  geom_sf(data = wipad_sf,
+          fill = "darkgreen",
+          color = NA, # boundaries, add arg linewidth = 
+          alpha = 0.6) +
+  theme_void() +
+  labs(title = "Protected Areas in Wisconsin")
+
+
+
+# Protected Area (ownership) #
+owner_colors <- c(
+  "SDNR" = "firebrick",
+  "TNC"  = "cornflowerblue",
+  "NAS"  = "plum",
+  "USFS" = "lightgreen"
+)
+
+wipad_partners <- wipad_sf %>%
+  filter(
+    Own_Name %in% c("SDNR", "USFS") | 
+      (Own_Name == "NGO" & Loc_Own %in% c("The Nature Conservancy", "National Audubon Society"))
+  ) %>%
+  mutate(
+    Owner_Group = case_when(
+      Own_Name == "SDNR" ~ "SDNR",
+      Own_Name == "USFS" ~ "USFS",
+      Own_Name == "NGO" & Loc_Own == "The Nature Conservancy" ~ "TNC",
+      Own_Name == "NGO" & Loc_Own == "National Audubon Society" ~ "NAS",
+      TRUE ~ "Other"
+    ),
+    Owner_Group = factor(Owner_Group, levels = c("SDNR", "TNC", "NAS", "USFS"))
+  )
+
+
+# Plot
+ggplot() +
+  geom_sf(data = wipad_partners,
+          aes(fill = Owner_Group),
+          color = NA,
+          alpha = 0.8) +
+  geom_sf(data = wipad_sf,
+          fill = NA,
+          color = NA,
+          linewidth = 0.2) +
+  scale_fill_manual(
+    values = owner_colors,
+    name = "Ownership",
+    guide = guide_legend(
+      label.position = "left",   # moves the text to the left of the swatch
+      keywidth = 1.5,            # adjust swatch width
+      keyheight = 0.8,
+      reverse = FALSE
+    )
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 13),
+    legend.title = element_text(face = "bold"),
+    legend.text  = element_text(size = 11)
+  ) +
+  labs(
+    title = "Wisconsin Protected Areas",
+    subtitle = "Partner Ownerships Highlighted"
+  )
+
+
+
+
+# Protected Area (gap status) #
+gap_colors <- c(
+  "1" = "#006400", 
+  "2" = "#41ab5d",
+  "3" = "#fe9929",
+  "4" = "#de2d26"
+)
+
+wipad_gap <- wipad_sf %>%
+  filter(GAP_Sts %in% c(1, 2, 3, 4)) %>%
+  mutate(
+    GAP_Sts = factor(GAP_Sts, levels = c(1, 2, 3, 4))
+  )
+
+
+# Plot
+ggplot() +
+  geom_sf(data = wipad_gap,
+          aes(fill = GAP_Sts),
+          color = NA,
+          alpha = 0.85) +
+  
+  # Outline all PAD lands
+  geom_sf(data = wipad_sf,
+          fill = NA,
+          color = NA,
+          linewidth = 0.2) +
+  
+  scale_fill_manual(
+    values = gap_colors,
+    name = "GAP Status",
+    guide = guide_legend(
+      label.position = "left",   # moves the text to the left of the swatch
+      keywidth = 1.5,            # adjust swatch width
+      keyheight = 0.8,
+      reverse = FALSE
+    )
+  ) +
+  
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 13),
+    legend.title = element_text(face = "bold"),
+    legend.text  = element_text(size = 11)
+  ) +
+  
+  labs(
+    title = "Wisconsin Protected Areas",
+    subtitle = "Colored by GAP Status (1 = Highest Protection)"
+  )
+
+
+
+
+
+
+
+
 
 ### NLCD, DayMet ###
 # ENV covars per spp per block set
 
-# Blocks used for this species
-spp_name <- "Cerulean Warbler"
+
+
+# Data Summary Visuals #
+
 
 blocks_species <- spp_zf_rll %>%
   filter(common_name == spp_name) %>%
@@ -226,181 +422,6 @@ ggplot(landcover_long,
 
 
 
-### WIBBA ###
-
-# All blocks
-ggplot() +
-  geom_sf(data = blocks_all_sf,
-          fill = NA,
-          color = "grey40",
-          linewidth = 0.2) +
-  theme_void() +
-  labs(title = "Wisconsin Breeding Bird Atlas Blocks")
-
-
-# RLL blocks
-ggplot() +
-  geom_sf(data = blocks_rll_sf,
-          fill = NA,
-          color = "grey40",
-          linewidth = 0.2) +
-  theme_void() +
-  labs(title = "Wisconsin Breeding Bird Atlas Blocks")
-
-
-# DNR blocks
-ggplot() +
-  geom_sf(data = blocks_dnr_sf,
-          fill = NA,
-          color = "grey40",
-          linewidth = 0.2) +
-  theme_void() +
-  labs(title = "Wisconsin Breeding Bird Atlas Blocks")
-
-
-
-
-
-
-## PROTECTED AREA ##
-
-# PAD map all
-ggplot() +
-  geom_sf(data = wipad_sf,
-          fill = "darkgreen",
-          color = NA,
-          alpha = 0.6) +
-  theme_void() +
-  labs(title = "Protected Areas in Wisconsin")
-
-
-ggplot() +
-  geom_sf(data = wipad_sf,
-          fill = "orange",
-          color = "black",
-          linewidth = 0.2) +
-  theme_void() +
-  labs(title = "Protected Area Boundaries")
-
-
-# PAD map by ownership
-# Filter for the main ownerships
-wipad_selected <- wipad_sf %>%
-  filter(
-    Own_Name %in% c("SDNR", "USFS") |           # SDNR and USFS directly
-      (Own_Name == "NGO" & Loc_Own %in% c("The Nature Conservancy", "National Audubon Society"))
-  ) %>%
-  mutate(
-    Owner_Group = case_when(
-      Own_Name == "SDNR" ~ "SDNR",
-      Own_Name == "USFS" ~ "USFS",
-      Own_Name == "NGO" & Loc_Own == "The Nature Conservancy" ~ "TNC",
-      Own_Name == "NGO" & Loc_Own == "National Audubon Society" ~ "NAS",
-      TRUE ~ "Other"
-    ),
-    Owner_Group = factor(Owner_Group, levels = c("SDNR", "TNC", "NAS", "USFS"))
-  )
-
-# Define colors for each group
-owner_colors <- c(
-  "SDNR" = "firebrick",
-  "TNC"  = "cornflowerblue",
-  "NAS"  = "plum",
-  "USFS" = "lightgreen"
-)
-
-# Plot
-ggplot() +
-  geom_sf(data = wipad_selected,
-          aes(fill = Owner_Group),
-          color = NA,
-          alpha = 0.8) +
-  geom_sf(data = wipad_sf,
-          fill = NA,
-          color = NA,
-          linewidth = 0.2) +
-  scale_fill_manual(
-    values = owner_colors,
-    name = "Ownership",
-    guide = guide_legend(
-      label.position = "left",   # moves the text to the left of the swatch
-      keywidth = 1.5,            # adjust swatch width
-      keyheight = 0.8,
-      reverse = FALSE
-    )
-  ) +
-  theme_void() +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
-    plot.subtitle = element_text(hjust = 0.5, size = 13),
-    legend.title = element_text(face = "bold"),
-    legend.text  = element_text(size = 11)
-  ) +
-  labs(
-    title = "Wisconsin Protected Areas",
-    subtitle = "Selected Ownerships Highlighted"
-  )
-
-
-
-
-
-# PAD map by gap status
-wipad_gap <- wipad_sf %>%
-  filter(GAP_Sts %in% c(1, 2, 3, 4)) %>%
-  mutate(
-    GAP_Sts = factor(GAP_Sts, levels = c(1, 2, 3, 4))
-  )
-
-# Define colors (ecologically intuitive gradient)
-gap_colors <- c(
-  "1" = "#006400",  # dark green (highest protection)
-  "2" = "#41ab5d",
-  "3" = "#fe9929",
-  "4" = "#de2d26"   # red (lowest protection)
-)
-
-# Plot
-ggplot() +
-  geom_sf(data = wipad_gap,
-          aes(fill = GAP_Sts),
-          color = NA,
-          alpha = 0.85) +
-  
-  # Outline all PAD lands
-  geom_sf(data = wipad_sf,
-          fill = NA,
-          color = NA,
-          linewidth = 0.2) +
-  
-  scale_fill_manual(
-    values = gap_colors,
-    name = "GAP Status",
-    guide = guide_legend(
-      label.position = "left",   # moves the text to the left of the swatch
-      keywidth = 1.5,            # adjust swatch width
-      keyheight = 0.8,
-      reverse = FALSE
-    )
-  ) +
-  
-  theme_void() +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
-    plot.subtitle = element_text(hjust = 0.5, size = 13),
-    legend.title = element_text(face = "bold"),
-    legend.text  = element_text(size = 11)
-  ) +
-  
-  labs(
-    title = "Wisconsin Protected Areas",
-    subtitle = "Colored by GAP Status (1 = Highest Protection)"
-  )
-
-
-
-
-
 
 
 
@@ -530,7 +551,10 @@ ggplot(pa_counts, aes(x = pa_bin, y = count)) +
 
 
 
-### PREDICTED PROBABILITIES w PA ###
+
+
+### --- MODEL RESPONSE --- ###
+# Predicted Probabilities w/ PA
 
 # PA z-scaled 
 blocks_pa_z_sf <- blocks_all_sf %>%
@@ -538,23 +562,6 @@ blocks_pa_z_sf <- blocks_all_sf %>%
               dplyr::select(atlas_block, pa_prop),
             by = "atlas_block")
 
-ggplot() +
-  geom_sf(data = blocks_pa_z_sf,
-          aes(fill = pa_prop),
-          color = NA) +
-  geom_sf(data = wipad_sf,
-          fill = NA,
-          color = "black",
-          linewidth = 0.2) +
-  scale_fill_viridis_c(
-    option = "C",
-    name = "Protected Area\n(Z-score)"
-  ) +
-  theme_minimal() +
-  labs(
-    title = "Z-Scaled Protected Area Coverage",
-    subtitle = "Used in Occupancy Modeling"
-  )
 
 
 # Predicted response x pa
@@ -581,7 +588,7 @@ predict_by_block <- function(model_name) {
 }
 
 
-block_predictions <- lapply(names(pa_models), # predictions 
+block_predictions <- lapply(names(pa_glm_models), # predictions 
                             predict_by_block)
 block_predictions_df <- bind_rows(block_predictions)
 
@@ -598,7 +605,7 @@ plot_prediction_map <- function(mod_name) {
             color = NA) +
     geom_sf(data = wipad_sf,
             fill = NA,
-            color = "black",
+            color = "gray",
             linewidth = 0.2) +
     scale_fill_viridis_c(
       option = "C",

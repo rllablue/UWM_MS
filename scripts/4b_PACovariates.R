@@ -2,44 +2,73 @@
 ### SETUP ###
 #############
 
-## --- LOAD PACKAGES --- ##
+### --- LOAD PACKAGES --- ###
 
-library(dplyr)
-library(tidyr)
-library(lubridate)
-library(purrr)
-library(ggplot2)
-library(sf)
-library(raster)
-library(terra)
-library(exactextractr)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(
+  dplyr,
+  tidyr,
+  lubridate,
+  purrr,
+  ggplot2,
+  sf,
+  raster,
+  terra,
+  exactextractr)
 
 
+### --- GEOMETRY FILES --- ### 
 
-############################
-### PROTECTED AREA (PAD) ###
-############################
+# Atlas Block Geometry #
+# Native CRS: WI Transverse Mercator, EPSG:3071
 
-### --- UPLOAD FILES --- ### 
-# Atlas blocks geometry
 blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
   rename(atlas_block = BLOCK_ID)
-blocks_all_sf <- st_transform(blocks_all_sf, 5070) # EPSG:5070 uses m as unit
-st_crs(blocks_all_sf)
+crs(blocks_all_sf)
 
-# PAD geometry
+blocks_rll_sf <- blocks_all_sf %>%
+  filter(atlas_block %in% blocks_rll)
+crs(blocks_rll_sf)
+
+blocks_dnr_sf <- blocks_all_sf %>%
+  filter(atlas_block %in% blocks_dnr)
+crs(blocks_dnr_sf)
+
+
+# transformation, CRS: Conus Albers, NAD83, EPSG:5070
+blocks_all_sf <- st_transform(wipad_sf, 5070)
+blocks_rll_sf <- st_transform(wipad_sf, 5070)
+blocks_dnr_sf <- st_transform(wipad_sf, 5070)
+
+st_crs(blocks_all_sf)
+st_crs(blocks_rll_sf)
+st_crs(blocks_dnr_sf)
+
+
+
+# PAD Geometry #
+# Native CRS: USA Contiguous Albers Equal Area Conic [USGS], NAD83
+
 st_layers("data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb")
 wipad_sf <- st_read(
   "data/maps/wipad/PADUS4_1_State_WI_GDB_KMZ/PADUS4_1_StateWI.gdb",
   layer = "PADUS4_1Fee_State_WI"
 )
 names(wipad_sf)
+st_crs(wipad_sf)
 
+
+# transformation, CRS: Conus Albers, NAD83, EPSG:5070
 wipad_sf <- st_transform(wipad_sf, 5070)
 st_crs(wipad_sf)
 
 
-# Filtering for counts
+
+
+
+### --- SUMMARIES --- ###
+
+# Counts #
 wipad_sf %>%
   filter(Own_Name == "SDNR") %>%
   count(Des_Tp, sort = TRUE)
@@ -62,24 +91,25 @@ wipad_sf %>% # w/in NGO
 
 
 
-### --- TOTAL PA --- ###
-### Calculate PA/block w/ dissolving ie. "full" PA cover per block
+### --- PA CALCULATIONS --- ###
 
+# Total PA Coverage #
+# w/ dissolving, i.e. total regardless of ownership
+
+# geometry: dissolve all PA boundaries
 wipad_diss_sf <- wipad_sf %>% 
   st_union() %>% 
   st_as_sf() %>%
   st_set_crs(5070)
 st_crs(wipad_diss_sf)
 
-
-# Compute PA per block
+# compute: PA per block
 blocks_all_sf <- blocks_all_sf %>%
   mutate(
     block_area_km2 = as.numeric(st_area(.) / 1e6) # m2 / 1e6 = km2
   )
 
-
-# Combine, summarize 
+# collect: PA values  
 wipad_wibba_summary <- blocks_all_sf %>%
   st_intersection(wipad_diss_sf) %>%
   mutate(overlap_km2 = as.numeric(st_area(.) / 1e6)) %>%
@@ -96,14 +126,14 @@ wipad_wibba_summary <- blocks_all_sf %>%
     pa_prop = pa_area_km2 / block_area_km2 # total pa proportion of block
   ) %>%
   dplyr::select(atlas_block, pa_area_km2, block_area_km2, pa_prop)
+
   
 
 
-##################### ADDITIVE STRUCTURE #######################################
 
+# PA Coverage by Sub-type #
 
-### --- FILTERED PAD: LAND OWNER (ADDITIVE STRUCTURE) --- ###
-
+# PA Ownership #
 # Define owner logic once
 wipad_sf <- wipad_sf %>%
   mutate(
@@ -165,7 +195,8 @@ wipad_own_summary <- blocks_all_sf %>%
 
 
 
-### --- FILTERED PAD: GAP STATUS (ADDITIVE STRUCTURE) --- ###
+# PA Protection Stringency #
+# GAP Status
 
 wipad_gap_summary <- blocks_all_sf %>%
   filter(atlas_block %in% blocks_rll) %>%

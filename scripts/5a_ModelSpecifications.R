@@ -936,48 +936,8 @@ global_glm_summaries <- lapply(global_glm_models, summary)
 pa_covar <- c("pa_prop")
 
 
+
 ### BASE PA ###
-
-FitBasePAModels <- function(ref_df, response, data) {
-  
-  # Extract environmental RHS from reference model
-  env_rhs <- ref_df$Modnames[1]
-  
-  # Build candidate RHS strings
-  rhs_list <- list(
-    ENV = env_rhs,
-    ENV_PA = paste(env_rhs, "+ pa_prop")
-  )
-  
-  # Fit models
-  models <- lapply(rhs_list, function(rhs) {
-    glm(as.formula(paste(response, "~", rhs)),
-        data = data,
-        family = binomial)
-  })
-  
-  # Model selection table
-  ms_table <- MuMIn::model.sel(models, rank = "AICc")
-  
-  list(models = models, sel_table = ms_table)
-}
-
-
-
-##########################################################################
-
-
-ExtractPAFormula <- function(ref_df, response) {
-  
-  if (is.null(ref_df) || nrow(ref_df) == 0) {
-    stop("Empty reference model for response: ", response)
-  }
-  
-  as.formula(
-    paste(response, "~", ref_df$Modnames[1], "+ pa_prop")
-  )
-}
-
 
 ExtractPAFormula <- function(ref_df, response) {
   
@@ -1002,67 +962,14 @@ pa_glm_models <- lapply(names(reference_global_models), function(nm) {
   )
 })
 
+
 names(pa_glm_models) <- names(reference_global_models)
 
-
 pa_glm_summaries <- lapply(pa_glm_models, summary)
-
+pa_glm_summaries
 
 vif_pa_models <- lapply(pa_glm_models, car::vif)
-
-
-##########################################################################
-
-
-RefitTopModel <- function(model_obj) {
-  
-  # Extract selection table
-  ms_table <- model_obj$sel_table
-  models   <- model_obj$models
-  
-  # Determine top model name (Δ = 0)
-  df <- as.data.frame(ms_table)
-  df$Modnames <- rownames(df)
-  top_name <- df$Modnames[df$delta == min(df$delta)][1]
-  
-  # Return the **fitted model object** directly
-  models[[top_name]]
-}
-
-
-
-
-pa_models <- lapply(names(reference_global_models), function(nm) {
-  response <- strsplit(nm, "_")[[1]][2]
-  
-  FitPAModels(
-    ref_df = reference_global_models[[nm]],
-    response = response,
-    data = data_dir[[nm]]
-  )
-})
-
-names(pa_models) <- names(reference_global_models)
-
-# Extract top Δ=0 models
-top_pa_models <- lapply(pa_models, RefitTopModel)
-names(top_pa_models) <- names(pa_models)
-
-
-# Check VIFs
-vif_results_pa <- lapply(top_pa_models, car::vif)
-
-# Quick summary example
-summary(top_pa_models$DNR_col)
-summary(top_pa_models$DNR_ext)
-summary(top_pa_models$RLL_col)
-summary(top_pa_models$RLL_ext)
-
-
-
-
-
-
+vif_pa_models
 
 
 

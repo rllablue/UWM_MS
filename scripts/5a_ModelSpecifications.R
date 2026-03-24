@@ -97,6 +97,9 @@ mod_data_all <- spp_zf_rll %>%
 # FULL DATASET #
 mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 
+# STORING #
+pa_results_df <- data.frame()
+
 
 # --- SPECIES-RESPONSE SUBSETTING --- #
 
@@ -107,7 +110,7 @@ mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_name <- "Cerulean Warbler"
+spp_name <- "Canada Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -209,6 +212,10 @@ dnr_counts <- mod_data_all %>%
     values_fill = 0
   )
 
+# small_n_counts <- # spp with insufficient sample sizes 
+  
+  
+  
 
 ##################
 ### COVARIATES ###
@@ -418,11 +425,13 @@ corrs4 <- GetHighCorrs(mod_ext_dnr, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "grass_pasture_base", "forest_deciduous_base", "forest_mixed_base",     
-                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <-  c("developed_total_base","forest_total_base", "cropland_base",
+                        "grassland_base", "pasture_base",
+                        
+                        "grassland_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -430,7 +439,7 @@ numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_r
 
 # VARIANCE INFLATION FACTOR #
 ### Single variable relationship to all others as a group (i.e. multivariate); 
-# multicollinearity redundancy measure, i.e. too similar to uniquely est coefficients
+# multicollinearity redundancy measure, i.e. too similar to uniquely est coefficients (ideally VIF < 5)
 responses <- c(
   col_rll = "col",
   ext_rll = "ext",
@@ -482,13 +491,13 @@ vif_results <- lapply(
 names(vif_results) <- names(mod_dfs_all)
 
 
+
 # Output Covariates
 guild_key
-land_covs_reduced <- c("developed_total_base", "grass_pasture_base", "forest_deciduous_base", "forest_mixed_base",     
-                       "wetlands_woody_base", "wetlands_herb_base", "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <- c()
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr")
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -924,7 +933,7 @@ global_glm_models <- lapply(names(reference_global_models), function(nm) {
 names(global_glm_models) <- names(reference_global_models)
 
 global_glm_summaries <- lapply(global_glm_models, summary)
-
+global_glm_summaries
 
 
 
@@ -962,8 +971,8 @@ pa_glm_models <- lapply(names(reference_global_models), function(nm) {
   )
 })
 
-
 names(pa_glm_models) <- names(reference_global_models)
+
 
 pa_glm_summaries <- lapply(pa_glm_models, summary)
 pa_glm_summaries
@@ -973,13 +982,103 @@ vif_pa_models
 
 
 
+# Extract, Collect PA effects 
+ExtractPACoefficients <- function(model, model_name, spp_name) {
+  
+  parts <- strsplit(model_name, "_")[[1]]
+  block    <- parts[1]
+  response <- parts[2]
 
-### GAP STATUS ###
+  df <- broom::tidy(model)
+  
+  if (!"pa_prop" %in% df$term) {
+    return(NULL)
+  }
+  
+  df %>%
+    filter(term == "pa_prop") %>%
+    mutate(
+      species   = spp_name,
+      response  = response,
+      block     = block,
+      conf.low  = estimate - 1.96 * std.error,
+      conf.high = estimate + 1.96 * std.error,
+      sig       = ifelse(conf.low > 0 | conf.high < 0, "yes", "no")
+    ) %>%
+    dplyr::select(species, block, response, estimate, std.error, conf.low, conf.high, p.value, sig)
+}
+
+
+species_results <- dplyr::bind_rows(
+  lapply(names(pa_glm_models), function(nm) {
+    ExtractPACoefficients(pa_glm_models[[nm]], nm, spp_name)
+  })
+)
+
+
+if (!"species" %in% names(pa_results_df)) {
+  
+  pa_results_df <- species_results
+  
+} else {
+  
+  pa_results_df <- pa_results_df %>%
+    dplyr::filter(species != spp_name) %>%
+    dplyr::bind_rows(species_results)
+  
+}
+
+
+
+write.csv(pa_results_df,"outputs/data/basepa_spp_effects.csv")
+pa_results_df <- read.csv("outputs/data/basepa_spp_effects.csv")
+
+
+
+
+
+# Caterpillar Plot
+
+ggplot(pa_results_df,
+       aes(x = estimate,
+           y = reorder(species, estimate),
+           color = response,
+           shape = response)) +
+  
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 height = 0.2,
+                 alpha = 0.6) +
+  
+  geom_point(aes(alpha = sig), size = 2.5) +
+  
+  scale_alpha_manual(values = c("yes" = 1, "no" = 0.4)) +
+  
+  labs(
+    x = "Effect of PA (log-odds)",
+    y = "Species",
+    title = "Effect of PA on Colonization/Extinction Metrics",
+    color = "Response",
+    shape = "Response",
+    alpha = "Significant"
+  ) +
+  
+  theme_minimal()
+
+
+
+
+
+
+
+
+
+### GAP STATUS #################################################################
 
 gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
 
 
-###########################################################################
 
 
 MakeSubsets <- function(vars) {
@@ -1158,87 +1257,10 @@ corrplot::corrplot(
 
 
 
-#############################################################################
-
-FitPAModels <- function(ref_df, response, data) {
-  
-  # Extract environmental RHS from reference model
-  env_rhs <- ref_df$Modnames[1]
-  
-  # Build candidate RHS strings
-  rhs_list <- list(
-    ENV = env_rhs,
-    ENV_PA = paste(env_rhs, "+", paste(pa_covars, collapse = " + ")),
-    ENV_PA_GAP = paste(env_rhs, "+",
-                       paste(c(pa_covars, gap_covars), collapse = " + "))
-  )
-  
-  # Fit models
-  models <- lapply(rhs_list, function(rhs) {
-    glm(as.formula(paste(response, "~", rhs)),
-        data = data,
-        family = binomial)
-  })
-  
-  # Model selection table
-  ms_table <- MuMIn::model.sel(models, rank = "AICc")
-  
-  list(models = models, sel_table = ms_table)
-}
-
-
-RefitTopModel <- function(model_obj) {
-  
-  # Extract selection table
-  ms_table <- model_obj$sel_table
-  models   <- model_obj$models
-  
-  # Determine top model name (Δ = 0) 
-  df$Modnames <- rownames(df)
-  top_name <- df$Modnames[df$delta == min(df$delta)][1]
-  
-  # Return the **fitted model object** directly
-  models[[top_name]]
-}
 
 
 
-
-pa_models <- lapply(names(reference_global_models), function(nm) {
-  response <- strsplit(nm, "_")[[1]][2]
-  
-  FitPAModels(
-    ref_df = reference_global_models[[nm]],
-    response = response,
-    data = data_dir[[nm]]
-  )
-})
-
-names(pa_models) <- names(reference_global_models)
-
-# Extract top Δ=0 models
-top_pa_models <- lapply(pa_models, RefitTopModel)
-names(top_pa_models) <- names(pa_models)
-
-
-# Check VIFs
-vif_results_pa <- lapply(top_pa_models, car::vif)
-
-# Quick summary example
-summary(top_pa_models$DNR_col)
-summary(top_pa_models$DNR_ext)
-summary(top_pa_models$RLL_col)
-summary(top_pa_models$RLL_ext)
-
-
-
-
-
-
-
-
-
-### MANAGER ### 
+### MANAGER ####################################################################
 
 own_covars <- c("sdnr_prop", "usfs_prop", "tnc_prop") # "nas_prop"
 

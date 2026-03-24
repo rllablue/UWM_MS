@@ -18,7 +18,7 @@ pacman::p_load(
 ### --- FLEXIBLE SPECS --- ###
 
 # Species to map #
-spp_name <- "Cerulean Warbler"
+spp_name <- "Grasshopper Sparrow"
 
 
 

@@ -110,7 +110,8 @@ pa_results_df <- data.frame()
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_alpha <- "CERW"
+spp_alpha <- "DEJU"
+spp_name <- "Dark-eyed Junco"
 
 
 # Helper: Build filtered modeling dfs
@@ -440,14 +441,14 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <-  c(c("grass_pasture_base",
-                          "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
-                          "wetlands_total_base",
-                          
-                          "forest_total_diff", "wetlands_total_diff"))
+land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
+                       "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+                       "wetlands_herb_base",
+                       
+                       "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -508,14 +509,14 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <- c("developed_total_base", 
-                       "forest_mixed_base", "forest_evergreen_base", 
+land_covs_reduced <- c("developed_total_base", "forest_mixed_base",
+                       "forest_evergreen_base", 
                        "wetlands_woody_base", "wetlands_herb_base",
                        
                        "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "prcp_38yr")
+climate_covs_reduced <- c("tmax_38yr", "prcp_38yr")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -952,6 +953,8 @@ names(global_glm_models) <- names(reference_global_models)
 global_glm_summaries <- lapply(global_glm_models, summary)
 global_glm_summaries
 
+vif_global_models <- lapply(global_glm_models, car::vif)
+vif_global_models
 
 
 
@@ -996,6 +999,40 @@ pa_glm_summaries
 
 vif_pa_models <- lapply(pa_glm_models, car::vif)
 vif_pa_models
+
+
+
+
+# PA: Interactions
+mod_col_pa <- pa_glm_models[["RLL_col"]]
+mod_ext_pa <- pa_glm_models[["RLL_ext"]]
+
+form_col_base <- formula(mod_col_pa)
+form_ext_base <- formula(mod_ext_pa)
+
+form_col_int <- update(form_col_base, . ~ . + pa_prop:forest_total_base) # :tmax_38yr, :forest_total_base, :grassland_base, :wetlands_total_base
+form_ext_int <- update(form_ext_base, . ~ . + pa_prop:forest_total_base)
+
+
+mod_col_pa_int <- glm(
+  formula = form_col_int,
+  data    = mod_col_rll,
+  family  = binomial
+)
+summary(mod_col_pa_int)
+car::vif(mod_col_pa_int, type = "terms")
+
+
+mod_ext_pa_int <- glm(
+  formula = form_ext_int,
+  data    = mod_ext_rll,
+  family  = binomial
+)
+summary(mod_ext_pa_int)
+car::vif(mod_ext_pa_int, type = "terms")
+
+
+
 
 
 
@@ -1044,6 +1081,7 @@ if (!"species" %in% names(pa_results_df)) {
     dplyr::bind_rows(species_results)
   
 }
+
 
 
 
@@ -1109,4 +1147,468 @@ PlotEffects <- function(df) {
 
 plot_rll <- PlotRLLEffects(caterpillar_df)
 plot_rll
+
+
+
+
+
+
+
+
+
+### GAP STATUS #################################################################
+
+gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
+
+
+
+
+MakeSubsets <- function(vars) {
+  
+  unlist(
+    lapply(0:length(vars), function(k) {
+      combn(vars, k, simplify = FALSE)
+    }),
+    recursive = FALSE
+  )
+}
+
+
+FitPAGapModels <- function(ref_df, response, data) {
+  
+  # Base environmental structure
+  env_rhs <- ref_df$Modnames[1]
+  
+  # Base PA model (always included)
+  base_rhs <- paste(env_rhs, "+ pa_prop")
+  
+  # All GAP combinations
+  gap_sets <- MakeSubsets(gap_covars)
+  
+  # Build RHS formulas
+  rhs_list <- lapply(gap_sets, function(gaps) {
+    if (length(gaps) == 0) {
+      base_rhs
+    } else {
+      paste(base_rhs, "+", paste(gaps, collapse = " + "))
+    }
+  })
+  
+  # Name models nicely
+  names(rhs_list) <- sapply(gap_sets, function(gaps) {
+    if (length(gaps) == 0) return("PA_only")
+    paste("PA", paste(gaps, collapse = "_"), sep = "_")
+  })
+  
+  # Fit models
+  models <- lapply(rhs_list, function(rhs) {
+    glm(as.formula(paste(response, "~", rhs)),
+        data = data,
+        family = binomial)
+  })
+  
+  # Model selection
+  ms_table <- MuMIn::model.sel(models, rank = "AICc")
+  
+  list(models = models, sel_table = ms_table)
+}
+
+
+
+pa_sig_models <- c("RLL_col")
+
+pa_gap_models <- lapply(pa_sig_models, function(nm) {
+  
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  FitPAGapModels(
+    ref_df = reference_global_models[[nm]],
+    response = response,
+    data = data_dir[[nm]]
+  )
+})
+
+names(pa_gap_models) <- pa_sig_models
+
+
+
+RefitTopModel <- function(model_obj) {
+  
+  ms_table <- model_obj$sel_table
+  models   <- model_obj$models
+  
+  df <- as.data.frame(ms_table)
+  df$Modnames <- rownames(df)
+  
+  top_name <- df$Modnames[which.min(df$delta)][1]
+  
+  models[[top_name]]
+}
+
+
+
+
+top_pa_gap_models <- lapply(pa_gap_models, RefitTopModel)
+
+# Check results
+summary(top_pa_gap_models$RLL_col)
+car::vif(top_pa_gap_models$RLL_col)
+
+
+pa_vars <- c("pa_prop", "gap1_prop", "gap2_prop", "gap3_prop")
+
+cor_mat <- cor(
+  data_dir$RLL_col[, pa_vars],
+  use = "complete.obs"
+)
+
+round(cor_mat, 3)
+
+corrplot::corrplot(
+  cor_mat,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8,
+  addCoef.col = "black"
+)
+
+
+
+pa_only <- subset(data_dir$RLL_col, pa_prop > 0)
+
+cor_pa_only <- cor(
+  pa_only[, pa_vars],
+  use = "complete.obs"
+)
+
+round(cor_pa_only, 3)
+
+corrplot::corrplot(
+  cor_pa_only,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8,
+  addCoef.col = "black"
+)
+
+
+pairs(
+  data_dir$RLL_col[, pa_vars],
+  pch = 16,
+  cex = 0.5
+)
+
+
+
+
+# GAP-only Mod
+gap_only_mod <- glm(
+  formula = col ~ sr_diff + tmax_38yr + developed_total_base + forest_deciduous_base + forest_mixed_base + 
+    gap1_prop + gap2_prop + gap3_prop,
+  data    = mod_col_rll,
+  family  = binomial)
+
+summary(gap_only_mod)
+
+
+
+
+
+
+mod_vars <- c("sr_diff", "tmax_38yr", "developed_total_base", "forest_deciduous_base", "forest_mixed_base", "pa_prop",
+              "gap1_prop", "gap2_prop", "gap3_prop")
+
+cor_mat_full <- cor(
+  data_dir$RLL_col[, mod_vars],
+  use = "complete.obs"
+)
+
+round(cor_mat_full, 3)
+
+corrplot::corrplot(
+  cor_mat_full,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8,
+  addCoef.col = "black"
+)
+
+
+
+
+
+
+
+### MANAGER ####################################################################
+
+own_covars <- c("sdnr_prop", "usfs_prop", "tnc_prop") # "nas_prop"
+
+
+FitPAModels <- function(ref_df, response, data) {
+  
+  # Extract environmental RHS from reference model
+  env_rhs <- ref_df$Modnames[1]
+  
+  # Build candidate RHS strings
+  rhs_list <- list(
+    ENV = env_rhs,
+    ENV_PA = paste(env_rhs, "+", paste(pa_covars, collapse = " + ")),
+    ENV_PA_OWN = paste(env_rhs, "+",
+                       paste(c(pa_covars, own_covars), collapse = " + "))
+  )
+  
+  # Fit models
+  models <- lapply(rhs_list, function(rhs) {
+    glm(as.formula(paste(response, "~", rhs)),
+        data = data,
+        family = binomial)
+  })
+  
+  # Model selection table
+  ms_table <- MuMIn::model.sel(models, rank = "AICc")
+  
+  list(models = models, sel_table = ms_table)
+}
+
+
+RefitTopModel <- function(model_obj) {
+  
+  # Extract selection table
+  ms_table <- model_obj$sel_table
+  models   <- model_obj$models
+  
+  # Determine top model name (Δ = 0)
+  df <- as.data.frame(ms_table)
+  df$Modnames <- rownames(df)
+  top_name <- df$Modnames[df$delta == min(df$delta)][1]
+  
+  # Return the **fitted model object** directly
+  models[[top_name]]
+}
+
+
+
+pa_models <- lapply(names(reference_global_models), function(nm) {
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  FitPAModels(
+    ref_df = reference_global_models[[nm]],
+    response = response,
+    data = data_dir[[nm]]
+  )
+})
+
+names(pa_models) <- names(reference_global_models)
+
+# Extract top Δ=0 models
+top_pa_models <- lapply(pa_models, RefitTopModel)
+names(top_pa_models) <- names(pa_models)
+
+
+# Check VIFs
+vif_results_pa <- lapply(top_pa_models, car::vif)
+
+# Quick summary example
+summary(top_pa_models$DNR_col)
+summary(top_pa_models$DNR_ext)
+summary(top_pa_models$RLL_col)
+summary(top_pa_models$RLL_ext)
+
+
+
+
+
+########################## VISUALIZATIONS ######################################
+
+MakeResponseCurve_fixed <- function(model_col,
+                                    model_ext,
+                                    focal_var,
+                                    data,
+                                    focal_seq = seq(0, 1, length.out = 100),
+                                    custom_baseline = NULL) {
+  
+  vars_col <- all.vars(formula(model_col))[-1]
+  vars_ext <- all.vars(formula(model_ext))[-1]
+  all_vars <- unique(c(vars_col, vars_ext))
+  
+  base_vals <- list()
+  
+  for (v in all_vars) {
+    
+    if (!is.null(custom_baseline) && v %in% names(custom_baseline)) {
+      base_vals[[v]] <- custom_baseline[[v]]
+      
+    } else {
+      if (is.numeric(data[[v]])) {
+        base_vals[[v]] <- median(data[[v]], na.rm = TRUE)
+      } else {
+        base_vals[[v]] <- names(sort(table(data[[v]]), decreasing = TRUE))[1]
+      }
+    }
+  }
+  
+  pred_data <- do.call(expand.grid, base_vals)
+  pred_data <- pred_data[rep(1, length(focal_seq)), ]
+  pred_data[[focal_var]] <- focal_seq
+  
+  # --- COLONIZATION ---
+  col_link <- predict(model_col, newdata = pred_data, type = "link", se.fit = TRUE)
+  
+  col_fit  <- plogis(col_link$fit)
+  col_lwr  <- plogis(col_link$fit - 1.96 * col_link$se.fit)
+  col_upr  <- plogis(col_link$fit + 1.96 * col_link$se.fit)
+  
+  # --- EXTINCTION ---
+  ext_link <- predict(model_ext, newdata = pred_data, type = "link", se.fit = TRUE)
+  
+  ext_fit  <- plogis(ext_link$fit)
+  ext_lwr  <- plogis(ext_link$fit - 1.96 * ext_link$se.fit)
+  ext_upr  <- plogis(ext_link$fit + 1.96 * ext_link$se.fit)
+  
+  data.frame(
+    x = focal_seq,
+    col_fit = col_fit,
+    col_lwr = col_lwr,
+    col_upr = col_upr,
+    ext_fit = ext_fit,
+    ext_lwr = ext_lwr,
+    ext_upr = ext_upr
+  )
+}
+
+
+
+
+
+
+# Start with model variables
+vars_needed_dnr <- unique(c(
+  all.vars(formula(top_pa_models$DNR_col))[-1],
+  all.vars(formula(top_pa_models$DNR_ext))[-1]
+))
+
+# Add gap & manager variables you want to explore
+extra_covs <- c("gap1_prop", "gap2_prop", "gap3_prop", "sdnr_prop", "tnc_prop", "usfs_prop")
+
+# Combine, keeping only columns that exist in your dataset
+vars_needed_dnr <- intersect(c(vars_needed_dnr, extra_covs), names(mod_col_dnr))
+
+dnr_all <- rbind(
+  mod_col_dnr[, vars_needed_dnr, drop = FALSE],
+  mod_ext_dnr[, vars_needed_dnr, drop = FALSE]
+)
+
+
+
+
+vars_needed_rll <- unique(c(
+  all.vars(formula(top_pa_models$RLL_col))[-1],
+  all.vars(formula(top_pa_models$RLL_ext))[-1]
+))
+
+vars_needed_rll <- intersect(c(vars_needed_rll, extra_covs), names(mod_col_rll))
+
+rll_all <- rbind(
+  mod_col_rll[, vars_needed_rll, drop = FALSE],
+  mod_ext_rll[, vars_needed_rll, drop = FALSE]
+)
+
+
+
+
+
+
+
+
+curve_dnr_pa <- MakeResponseCurve_fixed(
+  model_col = top_pa_models$DNR_col,
+  model_ext = top_pa_models$DNR_ext,
+  focal_var = "pa_prop",
+  data = dnr_all
+)
+
+
+curve_rll_pa <- MakeResponseCurve_fixed(
+  model_col = top_pa_models$RLL_col,
+  model_ext = top_pa_models$RLL_ext,
+  focal_var = "pa_prop",
+  data = rll_all
+)
+
+
+
+# Text size
+title_size       <- 16
+subtitle_size    <- 14
+legend_title_size <- 12
+legend_text_size  <- 11
+
+
+
+
+
+ggplot(curve_rll_pa, aes(x = x)) +
+  
+  # Colonization ribbon
+  geom_ribbon(aes(ymin = col_lwr, ymax = col_upr, fill = "Colonization"),
+              alpha = 0.2) +
+  geom_line(aes(y = col_fit, color = "Colonization"),
+            size = 1) +
+  
+  # Extinction ribbon
+  geom_ribbon(aes(ymin = ext_lwr, ymax = ext_upr, fill = "Extinction"),
+              alpha = 0.2) +
+  geom_line(aes(y = ext_fit, color = "Extinction"),
+            size = 1) +
+  
+  scale_color_manual(values = c("Colonization" = "darkorchid",
+                                "Extinction" = "orange")) +
+  
+  scale_fill_manual(values = c("Colonization" = "darkorchid",
+                               "Extinction" = "orange")) +
+  
+  ylim(0, 0.75) +
+  labs(x = "Total PA (%)",
+       y = "Predicted Probability",
+       color = "Process",
+       fill  = "Process",
+       title = "Red-bellied Woodpecker Response") +
+  
+  theme_minimal() +
+  
+  theme(
+    
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold",
+      size = title_size,
+      margin = margin(b = 12)
+    ),
+    axis.title.x = element_text(
+      face = "bold",
+      size = axis_title_size,
+      margin = margin(t = 12)
+    ),
+    axis.title.y = element_text(
+      face = "bold",
+      size = axis_title_size,
+      margin = margin(r = 12)
+    ),
+    axis.text.x = element_text(size = axis_text_size, angle = 0, vjust = 0.5),
+    axis.text.y = element_text(size = axis_text_size),
+    
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 11)
+  ) 
+
+
+
+
+
+
+
+
 

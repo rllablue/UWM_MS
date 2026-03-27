@@ -110,8 +110,8 @@ pa_results_df <- data.frame()
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_alpha <- "DEJU"
-spp_name <- "Dark-eyed Junco"
+spp_alpha <- "PROW"
+spp_name <- "Prothonotary Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -280,7 +280,7 @@ guild_key <- list(
              "forest_total_diff", "wetlands_total_diff"),
   
   grass = c("developed_total_base","forest_total_base", "cropland_base",
-            "grassland_base", "pasture_base", "grass_pasture_base",
+            "grassland_base", "pasture_base",
             
             "grassland_diff", "pasture_diff"),
   
@@ -441,14 +441,14 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
-                       "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
-                       "wetlands_herb_base",
-                       
-                       "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <-c("developed_total_base", "grass_pasture_base",
+                      "forest_deciduous_base", "forest_mixed_base", 
+                      "wetlands_woody_base", "wetlands_herb_base",
+                      
+                      "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c()
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -509,16 +509,17 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <- c("developed_total_base", "forest_mixed_base",
-                       "forest_evergreen_base", 
-                       "wetlands_woody_base", "wetlands_herb_base",
-                       
-                       "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <-c("developed_total_base", 
+                      "forest_deciduous_base", "forest_mixed_base", 
+                      "wetlands_total_base", 
+                      
+                      "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "prcp_38yr")
+climate_covs_reduced <- c("tmax_38yr")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
+
 
 
 # Repeat
@@ -1070,13 +1071,13 @@ species_results <- dplyr::bind_rows(
 )
 
 
-if (!"species" %in% names(pa_results_df)) {
+if (!"species" %in% names(rll_results_df)) {
   
-  pa_results_df <- species_results
+  rll_results_df <- species_results
   
 } else {
   
-  pa_results_df <- pa_results_df %>%
+  rll_results_df <- rll_results_df %>%
     dplyr::filter(species != spp_name) %>%
     dplyr::bind_rows(species_results)
   
@@ -1085,16 +1086,23 @@ if (!"species" %in% names(pa_results_df)) {
 
 
 
-#write.csv(pa_results_df,"outputs/data/basepa_spp_effects.csv")
-#pa_results_df <- read.csv("outputs/data/basepa_spp_effects.csv")
+write.csv(rll_results_df,"outputs/data/basepa_effects_rll.csv")
+rll_results_df <- read.csv("outputs/data/basepa_effects_rll.csv") %>%
+  dplyr::select(-X)
 
 
+
+
+
+
+rll_results_df <- pa_results_df %>%
+  dplyr::filter(block == "RLL")
 
 
 
 # Caterpillar Plot
 
-caterpillar_df <- pa_results_df %>%
+caterpillar_df <- rll_results_df %>%
   group_by(species, response) %>%
   mutate(strength = max(abs(estimate), na.rm = TRUE)) %>%
   ungroup()
@@ -1145,7 +1153,7 @@ PlotEffects <- function(df) {
 }
 
 
-plot_rll <- PlotRLLEffects(caterpillar_df)
+plot_rll <- PlotEffects(caterpillar_df)
 plot_rll
 
 

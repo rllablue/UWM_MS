@@ -110,8 +110,8 @@ pa_results_df <- data.frame()
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_alpha <- "PROW"
-spp_name <- "Prothonotary Warbler"
+spp_alpha <- "CERW"
+spp_name <- "Cerulean Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -441,14 +441,14 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <-c("developed_total_base", "grass_pasture_base",
-                      "forest_deciduous_base", "forest_mixed_base", 
-                      "wetlands_woody_base", "wetlands_herb_base",
-                      
-                      "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
+                       "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
+                       "wetlands_woody_base", "wetlands_herb_base",
+                       
+                       "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff")
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -509,11 +509,11 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <-c("developed_total_base", 
-                      "forest_deciduous_base", "forest_mixed_base", 
-                      "wetlands_total_base", 
-                      
-                      "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <- c("developed_total_base", 
+                       "forest_deciduous_base", "forest_mixed_base",
+                       "wetlands_woody_base", "wetlands_herb_base",
+                       
+                       "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
 climate_covs_reduced <- c("tmax_38yr")

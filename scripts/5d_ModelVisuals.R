@@ -11,14 +11,16 @@ pacman::p_load(
   ggplot2,
   viridis,
   viridisLite,
-  RColorBrewer)
+  RColorBrewer,
+  grid,
+  cowplot)
 
 
 
 ### --- FLEXIBLE SPECS --- ###
 
 # Species to map #
-spp_name <- "Grasshopper Sparrow"
+spp_name <- "Cerulean Warbler"
 
 
 
@@ -49,6 +51,21 @@ st_crs(blocks_all_sf)
 st_crs(blocks_rll_sf)
 st_crs(blocks_dnr_sf)
 
+
+
+# WI State outline
+state_outline_sf <- st_union(blocks_all_sf)
+
+state_outline_sf <- st_sf(geometry = state_outline_sf)
+
+# Plot to check
+ggplot() +
+  geom_sf(data = state_outline_sf,
+          fill = NA,        # no fill
+          color = "black",  # outline color
+          linewidth = 0.5) + 
+  theme_void() +
+  labs(title = "Wisconsin State Outline")
 
 
 # PAD Geometry #
@@ -120,8 +137,7 @@ ggplot() +
 # Protected Area (all) #
 ggplot() +
   geom_sf(data = wipad_sf,
-          fill = "darkgreen",
-          color = NA, # boundaries, add arg linewidth = 
+          color = "grey40", # boundaries, add arg linewidth = 
           alpha = 0.6) +
   theme_void() +
   labs(title = "Protected Areas in Wisconsin")
@@ -418,13 +434,6 @@ ggplot(landcover_long,
 
 
 
-
-
-
-
-
-
-
 # PAD-WIBBA Overlap
 ggplot() +
   geom_sf(data = blocks_all_sf,
@@ -553,129 +562,42 @@ ggplot(pa_counts, aes(x = pa_bin, y = count)) +
 
 
 
-### --- MODEL RESPONSE --- ###
-# Predicted Probabilities w/ PA
-
-# PA z-scaled 
-blocks_pa_z_sf <- blocks_all_sf %>%
-  left_join(mod_data_all %>%
-              dplyr::select(atlas_block, pa_prop),
-            by = "atlas_block")
-
-
-
-# Predicted response x pa
-predict_by_block <- function(model_name) {
-  
-  model_obj <- global_glm_models[[model_name]]
-  model_data <- data_dir[[model_name]]
-  
-  # Predict probabilities
-  model_data$pred_prob <- predict(
-    model_obj,
-    type = "response"
-  )
-  
-  # Aggregate to block level
-  block_preds <- model_data %>%
-    group_by(atlas_block) %>%
-    summarise(pred_prob = mean(pred_prob, na.rm = TRUE),
-              .groups = "drop")
-  
-  block_preds$model_name <- model_name
-  
-  return(block_preds)
-}
-
-
-block_predictions <- lapply(names(pa_glm_models), # predictions 
-                            predict_by_block)
-block_predictions_df <- bind_rows(block_predictions)
-
-blocks_pred_sf <- blocks_all_sf %>% # join predictions to geometry
-  left_join(block_predictions_df,
-            by = "atlas_block")
-
-
-plot_prediction_map <- function(mod_name) {
-  
-  ggplot(blocks_pred_sf %>% 
-           filter(model_name == mod_name)) +
-    geom_sf(aes(fill = pred_prob),
-            color = NA) +
-    geom_sf(data = wipad_sf,
-            fill = NA,
-            color = "gray",
-            linewidth = 0.2) +
-    scale_fill_viridis_c(
-      option = "C",
-      direction = -1,
-      name = "Predicted\nProbability"
-    ) +
-    theme_void() +
-    labs(
-      title = paste("Predicted Probability -", mod_name)
-    )
-}
-
-plot_prediction_map("RLL_col")
-plot_prediction_map("RLL_ext")
-plot_prediction_map("DNR_col")
-plot_prediction_map("DNR_ext")
-
-
-# w/o PA outlines
-plot_prediction_map <- function(mod_name) {
-  
-  ggplot(blocks_pred_sf %>% 
-           filter(model_name == mod_name)) +
-    geom_sf(aes(fill = pred_prob),
-            color = NA) +
-    scale_fill_viridis_c(
-      option = "C",
-      name = "P(Extinction)"
-    ) +
-    theme_void()
-}
-
-plot_prediction_map("RLL_col")
-plot_prediction_map("RLL_ext")
-plot_prediction_map("DNR_col")
-plot_prediction_map("DNR_ext")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ### SPECIES-RESPONSE MAPS ###
 
-blocks_spp_sf <- blocks_all_sf %>%
+# Join two species response dfs, mod_col_rll and mod_ext_rll
+
+
+# Colonization / Absence
+col_states <- mod_col_rll %>%
+  dplyr::select(atlas_block, col) %>%
+  mutate(transition_state = ifelse(col == 1, "Colonization", "Absence")) %>%
+  dplyr::select(atlas_block, transition_state)
+
+# Extinction / Persistence
+ext_states <- mod_ext_rll %>%
+  dplyr::select(atlas_block, ext) %>%
+  mutate(transition_state = ifelse(ext == 1, "Extinction", "Persistence")) %>%
+  dplyr::select(atlas_block, transition_state)
+
+# Combine
+blocks_species <- bind_rows(col_states, ext_states)
+
+
+blocks_rll_sf <- blocks_rll_sf %>%
   left_join(blocks_species, by = "atlas_block")
 
-blocks_rll_sf <- blocks_spp_sf %>%
-  filter(atlas_block %in% blocks_rll)
 
-# Count blocks per response type
 response_counts <- blocks_rll_sf %>%
-  st_set_geometry(NULL) %>%  # drop geometry for counting
+  st_set_geometry(NULL) %>%
   group_by(transition_state) %>%
   summarise(n_blocks = n(), .groups = "drop")
+
+
+blocks_rll_sf$transition_state <- factor(
+  blocks_rll_sf$transition_state,
+  levels = c("Colonization","Extinction") # "Persistence, "Absence"
+)
+
 
 # Create labels with counts
 response_labels <- paste0(response_counts$transition_state, " (", response_counts$n_blocks, ")")
@@ -683,10 +605,10 @@ names(response_labels) <- response_counts$transition_state
 
 # Colors
 state_colors <- c(
-  "Colonization" = "darkorchid",
-  "Persistence"  = "darkslategray3",
-  "Extinction"   = "orange",
-  "Absence"      = "#bdbdbd"
+  "Colonization" = "mediumturquoise",
+  #"Persistence"  = "darkslategray3",
+  "Extinction"   = "tomato3"
+  #"Absence"      = "#bdbdbd"
 )
 
 
@@ -699,7 +621,13 @@ legend_text_size  <- 11
 
 # Plot
 ggplot(blocks_rll_sf) +
-  geom_sf(aes(fill = transition_state), color = NA, linewidth = 0.2) +
+  geom_sf(aes(fill = transition_state), color = "white", linewidth = 0.2) +
+  
+  # State outline
+  geom_sf(data = state_outline_sf,
+          fill = NA,
+          color = "black",
+          linewidth = 0.75) + 
   scale_fill_manual(
     values = state_colors,
     labels = response_labels,
@@ -724,3 +652,319 @@ ggplot(blocks_rll_sf) +
     legend.text = element_text(size = 11)
   )
 
+
+
+
+
+
+### --- MODEL RESPONSE MAPS --- ###
+# Predicted Probabilities w/ PA
+
+# Separate Maps
+predict_by_block <- function(model_name){
+  
+  model_obj  <- pa_glm_models[[model_name]]
+  model_data <- data_dir[[model_name]]
+  
+  model_data$pred_prob <- predict(
+    model_obj,
+    type = "response"
+  )
+  
+  block_preds <- model_data %>%
+    group_by(atlas_block) %>%
+    summarise(
+      pred_prob = mean(pred_prob, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  block_preds$model_name <- model_name
+  
+  block_preds
+}
+
+
+block_predictions <- lapply(
+  c("RLL_col","RLL_ext"),
+  predict_by_block
+)
+
+block_predictions_df <- bind_rows(block_predictions)
+
+
+blocks_pred_sf <- blocks_rll_sf %>%
+  left_join(block_predictions_df,
+            by = "atlas_block")
+
+
+
+plot_prediction_map <- function(mod_name){
+  
+  resp <- ifelse(grepl("col", mod_name),
+                 "P(Colonization)",
+                 "P(Extinction)")
+  
+  ggplot(
+    blocks_pred_sf %>% 
+      filter(model_name == mod_name)
+  ) +
+    geom_sf(aes(fill = pred_prob),
+            color = NA) +
+    scale_fill_viridis_c(
+      option = "C",
+      direction = 1,
+      limits = c(0,1),
+      name = resp
+    ) +
+    theme_void() +
+    labs(
+      title = paste("Predicted Probability -", mod_name)
+    )
+}
+
+
+plot_prediction_map("RLL_col")
+plot_prediction_map("RLL_ext")
+
+
+
+# Single map/Combined
+
+### --- MODEL RESPONSE MAPS: COMBINED COL/EXT --- ###
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(sf)
+library(grid)
+
+# --- 1. Prepare full block table --- #
+spp_name <- "Red-bellied Woodpecker"
+
+
+
+
+
+full_blocks <- blocks_rll_sf %>%
+  st_set_geometry(NULL) %>%
+  dplyr::select(atlas_block) %>%
+  # Join colonization and extinction predictions
+  left_join(col_preds, by = "atlas_block") %>%
+  left_join(ext_preds, by = "atlas_block")
+
+# --- 2. Z-score standardization for available predictions ---
+full_blocks <- full_blocks %>%
+  mutate(
+    col_scaled = ifelse(!is.na(col_prob),
+                        (col_prob - mean(col_prob, na.rm = TRUE)) / sd(col_prob, na.rm = TRUE),
+                        NA),
+    ext_scaled = ifelse(!is.na(ext_prob),
+                        (ext_prob - mean(ext_prob, na.rm = TRUE)) / sd(ext_prob, na.rm = TRUE),
+                        NA),
+    # Combined response: handle missing predictions
+    response_surface = case_when(
+      !is.na(col_scaled) & !is.na(ext_scaled) ~ col_scaled - ext_scaled,
+      !is.na(col_scaled) & is.na(ext_scaled)  ~ col_scaled,
+      is.na(col_scaled) & !is.na(ext_scaled)  ~ -ext_scaled,
+      TRUE ~ NA_real_
+    )
+  )
+
+# --- 3. Rescale response_surface to -1 -> 1 ---
+max_abs <- max(abs(full_blocks$response_surface), na.rm = TRUE)
+full_blocks <- full_blocks %>%
+  mutate(response_scaled = response_surface / max_abs)
+
+# --- 4. Join back to spatial blocks --- #
+blocks_combined_sf <- blocks_rll_sf %>%
+  left_join(full_blocks %>% dplyr::select(atlas_block, response_scaled), by = "atlas_block")
+
+# --- 5. Define legend ticks ---
+numeric_ticks <- c(-1, -0.5, 0, 0.5, 1)
+
+# --- 6. Map with PA overlay --- #
+map_pa_plot <- ggplot() +
+  geom_sf(data = blocks_combined_sf,
+          aes(fill = response_scaled),
+          color = NA) +
+  geom_sf(data = wipad_sf,
+          fill = "grey40",
+          alpha = 0.1,
+          color = "black",
+          linewidth = 0.00025) +
+  scale_fill_gradient2(
+    low = "orange",
+    mid = "white",
+    high = "darkorchid",
+    midpoint = 0,
+    limits = c(-1, 1),
+    na.value = "grey90",
+    name = "Pressure",
+    guide = "none"
+  ) +
+  coord_sf(expand = FALSE) +
+  theme_void() +
+  labs(title = "Colonization vs Extinction Pressure over Protected Areas") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+# --- 7. Legend --- #
+legend_plot <- ggplot(blocks_combined_sf) +
+  geom_tile(aes(x = response_scaled, y = 1, fill = response_scaled)) +
+  scale_fill_gradient2(
+    low = "orange",
+    mid = "white",
+    high = "darkorchid",
+    midpoint = 0,
+    limits = c(-1, 1),
+    breaks = numeric_ticks,
+    labels = numeric_ticks,
+    guide = guide_colorbar(
+      direction = "horizontal",
+      barwidth = unit(8, "cm"),
+      barheight = unit(0.35, "cm"),
+      ticks.colour = "black",
+      title.position = "top",
+      label.position = "bottom"
+    ),
+    name = NULL
+  ) +
+  annotate(
+    "text", x = c(-1, 0, 1), y = 1.05,
+    label = c("Extinction", "Stable", "Colonization"),
+    size = 3.5,
+    fontface = "bold"
+  ) +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+# --- 8. Combine map + legend --- #
+plot_grid(
+  map_pa_plot,
+  legend_plot,
+  ncol = 1,
+  rel_heights = c(0.9, 0.1)
+)
+
+
+
+
+
+################################ WIP NEW WORKFLOW ############################
+
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(cowplot)
+library(grid)
+
+# ==============================
+# --- COMBINED COL/EXT MAP ---
+# ==============================
+
+# --- 1. Pull colonization & extinction predictions from block_predictions_df --- #
+col_preds <- block_predictions_df %>%
+  filter(model_name == "RLL_col") %>%
+  dplyr::select(atlas_block, col_prob = pred_prob)
+
+ext_preds <- block_predictions_df %>%
+  filter(model_name == "RLL_ext") %>%
+  dplyr::select(atlas_block, ext_prob = pred_prob)
+
+# --- 2. Build full block table --- #
+full_blocks <- blocks_rll_sf %>%
+  st_set_geometry(NULL) %>%
+  dplyr::select(atlas_block) %>%
+  left_join(col_preds, by = "atlas_block") %>%
+  left_join(ext_preds, by = "atlas_block")
+
+# --- 3. Z-score standardization --- #
+full_blocks <- full_blocks %>%
+  mutate(
+    col_scaled = ifelse(!is.na(col_prob),
+                        (col_prob - mean(col_prob, na.rm = TRUE)) / sd(col_prob, na.rm = TRUE),
+                        NA),
+    ext_scaled = ifelse(!is.na(ext_prob),
+                        (ext_prob - mean(ext_prob, na.rm = TRUE)) / sd(ext_prob, na.rm = TRUE),
+                        NA),
+    # Combined response surface: positive = colonization, negative = extinction
+    response_surface = case_when(
+      !is.na(col_scaled) & !is.na(ext_scaled) ~ col_scaled - ext_scaled,
+      !is.na(col_scaled) & is.na(ext_scaled)  ~ col_scaled,
+      is.na(col_scaled) & !is.na(ext_scaled)  ~ -ext_scaled,
+      TRUE ~ NA_real_
+    )
+  )
+
+# --- 4. Rescale response_surface to -1 -> 1 --- #
+max_abs <- max(abs(full_blocks$response_surface), na.rm = TRUE)
+full_blocks <- full_blocks %>%
+  mutate(response_scaled = response_surface / max_abs)
+
+# --- 5. Join back to spatial blocks --- #
+blocks_combined_sf <- blocks_rll_sf %>%
+  left_join(full_blocks %>% dplyr::select(atlas_block, response_scaled), by = "atlas_block")
+
+# --- 6. Define legend ticks --- #
+numeric_ticks <- c(-1, -0.5, 0, 0.5, 1)
+
+# --- 7. Map with PA overlay --- #
+map_pa_plot <- ggplot() +
+  geom_sf(data = blocks_combined_sf,
+          aes(fill = response_scaled),
+          color = NA) +
+  geom_sf(data = wipad_sf,
+          fill = "grey40",
+          alpha = 0.1,
+          color = "black",
+          linewidth = 0.00025) +
+  scale_fill_gradient2(
+    low = "orange",
+    mid = "white",
+    high = "darkorchid",
+    midpoint = 0,
+    limits = c(-1, 1),
+    na.value = "grey90",
+    name = "Pressure",
+    guide = "none"
+  ) +
+  coord_sf(expand = FALSE) +
+  theme_void() +
+  labs(title = paste("Colonization vs Extinction Pressure -", spp_name)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+# --- 8. Legend --- #
+legend_plot <- ggplot(blocks_combined_sf) +
+  geom_tile(aes(x = response_scaled, y = 1, fill = response_scaled)) +
+  scale_fill_gradient2(
+    low = "orange",
+    mid = "white",
+    high = "darkorchid",
+    midpoint = 0,
+    limits = c(-1, 1),
+    breaks = numeric_ticks,
+    labels = numeric_ticks,
+    guide = guide_colorbar(
+      direction = "horizontal",
+      barwidth = unit(8, "cm"),
+      barheight = unit(0.35, "cm"),
+      ticks.colour = "black",
+      title.position = "top",
+      label.position = "bottom"
+    ),
+    name = NULL
+  ) +
+  annotate(
+    "text", x = c(-1, 0, 1), y = 1.05,
+    label = c("Extinction", "Stable", "Colonization"),
+    size = 3.5,
+    fontface = "bold"
+  ) +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+# --- 9. Combine map + legend --- #
+plot_grid(
+  map_pa_plot,
+  legend_plot,
+  ncol = 1,
+  rel_heights = c(0.9, 0.1)
+)

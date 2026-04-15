@@ -20,7 +20,7 @@ pacman::p_load(
 ### --- FLEXIBLE SPECS --- ###
 
 # Species to map #
-spp_name <- "Cerulean Warbler"
+spp_name <- "Canada Warbler"
 
 
 
@@ -595,7 +595,7 @@ response_counts <- blocks_rll_sf %>%
 
 blocks_rll_sf$transition_state <- factor(
   blocks_rll_sf$transition_state,
-  levels = c("Colonization","Extinction") # "Persistence, "Absence"
+  levels = c("Colonization", "Extinction", "Persistence", "Absence")
 )
 
 
@@ -605,10 +605,10 @@ names(response_labels) <- response_counts$transition_state
 
 # Colors
 state_colors <- c(
-  "Colonization" = "mediumturquoise",
-  #"Persistence"  = "darkslategray3",
-  "Extinction"   = "tomato3"
-  #"Absence"      = "#bdbdbd"
+  "Colonization" = "darkorchid",
+  "Persistence"  = "turquoise",
+  "Extinction"   = "orange",
+  "Absence"      = "#bdbdbd"
 )
 
 

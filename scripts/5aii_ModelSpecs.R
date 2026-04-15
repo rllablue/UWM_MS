@@ -110,8 +110,8 @@ pa_results_df <- data.frame()
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_alpha <- "CERW"
-spp_name <- "Cerulean Warbler"
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -1087,16 +1087,8 @@ if (!"species" %in% names(rll_results_df)) {
 
 
 write.csv(rll_results_df,"outputs/data/basepa_effects_rll.csv")
-rll_results_df <- read.csv("outputs/data/basepa_effects_rll.csv") %>%
-  dplyr::select(-X)
+rll_results_df <- read.csv("outputs/data/basepa_effects_rll.csv")
 
-
-
-
-
-
-rll_results_df <- pa_results_df %>%
-  dplyr::filter(block == "RLL")
 
 
 

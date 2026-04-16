@@ -110,8 +110,8 @@ pa_results_df <- data.frame()
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_alpha <- "EVGR"
-spp_name <- "Evening Grosbeak"
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
 
 
 # Helper: Build filtered modeling dfs

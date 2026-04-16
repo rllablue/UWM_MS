@@ -653,20 +653,9 @@ ggplot() +
   ) +
   
   # subtle PAD overlay
-  geom_sf(
-    data = wipad_sf,
-    fill = "grey20",
-    color = NA,
-    alpha = 0.08
-  ) +
-  
-  # Wisconsin state outline
-  geom_sf(
-    data = state_outline_sf,
-    fill = NA,
-    color = "black",
-    linewidth = 0.25
-  ) +
+  geom_sf(data = wipad_sf,
+          fill = "grey40",
+          alpha = 0.05) +
   
   facet_wrap(~model_bin) +
   
@@ -677,15 +666,15 @@ ggplot() +
     midpoint = 0,
     limits = c(-max_abs, max_abs),
     oob = scales::squish,
-    name = "PA occupancy\neffect"
+    name = "PA effect"
   ) +
   
   coord_sf(expand = FALSE) +
   theme_void() +
   
   labs(
-    title = paste("Protected Area Contribution to", spp_name, "Occupancy"),
-    subtitle = "Purple = supports occupancy, Orange = undermines occupancy"
+    title = paste("Protected Area Contribution to", spp_name, "Occurence"),
+    subtitle = "Purple = supports occurence, Orange = undermines occurence"
   ) +
   
   theme(
@@ -711,13 +700,6 @@ ggplot() +
 
 
 
-
-
-geom_sf(data = wipad_sf,
-        fill = "grey40",
-        alpha = 0.2,
-        color = "black",
-        linewidth = 0.03) +
 
 
 
@@ -1211,7 +1193,6 @@ species_subset <- c(
   "Olive-sided Flycatcher",
   "Canada Warbler",
   "Winter Wren",
-  "Northern Waterthrush",
   "Cape May Warbler",
   "Evening Grosbeak"
 )

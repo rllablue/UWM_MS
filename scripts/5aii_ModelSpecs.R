@@ -110,8 +110,8 @@ pa_results_df <- data.frame()
 ### Scaling of covars w/in subsets for relevant normalized values
 
 # Species to model
-spp_alpha <- "CAWA"
-spp_name <- "Canada Warbler"
+spp_alpha <- "EVGR"
+spp_name <- "Evening Grosbeak"
 
 
 # Helper: Build filtered modeling dfs
@@ -441,11 +441,10 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
-                       "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
-                       "wetlands_woody_base", "wetlands_herb_base",
+land_covs_reduced <- c("developed_total_base", "cropland_base", "grassland_base",       
+                       "pasture_base",
                        
-                       "forest_total_diff", "wetlands_total_diff")
+                       "grassland_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
 climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
@@ -509,14 +508,14 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <- c("developed_total_base", 
-                       "forest_deciduous_base", "forest_mixed_base",
-                       "wetlands_woody_base", "wetlands_herb_base",
+land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
+                       "forest_mixed_base", "forest_evergreen_base", 
+                       "wetlands_total_base", 
                        
                        "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -1004,40 +1003,7 @@ vif_pa_models
 
 
 
-# PA: Interactions
-mod_col_pa <- pa_glm_models[["RLL_col"]]
-mod_ext_pa <- pa_glm_models[["RLL_ext"]]
-
-form_col_base <- formula(mod_col_pa)
-form_ext_base <- formula(mod_ext_pa)
-
-form_col_int <- update(form_col_base, . ~ . + pa_prop:forest_total_base) # :tmax_38yr, :forest_total_base, :grassland_base, :wetlands_total_base
-form_ext_int <- update(form_ext_base, . ~ . + pa_prop:forest_total_base)
-
-
-mod_col_pa_int <- glm(
-  formula = form_col_int,
-  data    = mod_col_rll,
-  family  = binomial
-)
-summary(mod_col_pa_int)
-car::vif(mod_col_pa_int, type = "terms")
-
-
-mod_ext_pa_int <- glm(
-  formula = form_ext_int,
-  data    = mod_ext_rll,
-  family  = binomial
-)
-summary(mod_ext_pa_int)
-car::vif(mod_ext_pa_int, type = "terms")
-
-
-
-
-
-
-# Extract, Collect PA effects 
+# Extract, Collect Base PA effects 
 ExtractPACoefficients <- function(model, model_name, spp_name) {
   
   parts <- strsplit(model_name, "_")[[1]]
@@ -1086,67 +1052,43 @@ if (!"species" %in% names(rll_results_df)) {
 
 
 
-write.csv(rll_results_df,"outputs/data/basepa_effects_rll.csv")
-rll_results_df <- read.csv("outputs/data/basepa_effects_rll.csv")
+
+
+################################ PA: Interactions
+mod_col_pa <- pa_glm_models[["RLL_col"]]
+mod_ext_pa <- pa_glm_models[["RLL_ext"]]
+
+form_col_base <- formula(mod_col_pa)
+form_ext_base <- formula(mod_ext_pa)
+
+form_col_int <- update(form_col_base, . ~ . + pa_prop:forest_total_base) # :tmax_38yr, :forest_total_base, :grassland_base, :wetlands_total_base
+form_ext_int <- update(form_ext_base, . ~ . + pa_prop:forest_total_base)
+
+
+mod_col_pa_int <- glm(
+  formula = form_col_int,
+  data    = mod_col_rll,
+  family  = binomial
+)
+summary(mod_col_pa_int)
+car::vif(mod_col_pa_int, type = "terms")
+
+
+mod_ext_pa_int <- glm(
+  formula = form_ext_int,
+  data    = mod_ext_rll,
+  family  = binomial
+)
+summary(mod_ext_pa_int)
+car::vif(mod_ext_pa_int, type = "terms")
 
 
 
 
-# Caterpillar Plot
-
-caterpillar_df <- rll_results_df %>%
-  group_by(species, response) %>%
-  mutate(strength = max(abs(estimate), na.rm = TRUE)) %>%
-  ungroup()
 
 
-PlotEffects <- function(df) {
-  
-  dodge <- position_dodge(width = 0.5)
-  
-  ggplot(
-    df,
-    aes(x = estimate,
-        y = reorder(species, strength),
-        color = response,
-        group = response)
-  ) +
-    
-    geom_vline(xintercept = 0, linetype = "dashed") +
-    
-    geom_errorbar(
-      aes(xmin = conf.low, xmax = conf.high),
-      orientation = "y",
-      width = 0.2,
-      position = dodge
-    ) +
-    
-    geom_point(
-      aes(shape = sig),
-      size = 2.8,
-      stroke = 1,
-      fill = "white",
-      position = dodge
-    ) +
-    
-    scale_shape_manual(values = c("yes" = 16, "no" = 1)) +
-    
-    scale_color_manual(values = c("col" = "#1f78b4", "ext" = "#e31a1c")) +
-    
-    labs(
-      title = "Effect of PA (RLL only)",
-      x = "PA Effect (log-odds)",
-      y = "Species",
-      color = "Response",
-      shape = "Significant"
-    ) +
-    
-    theme_minimal()
-}
 
 
-plot_rll <- PlotEffects(caterpillar_df)
-plot_rll
 
 
 
@@ -1253,6 +1195,7 @@ top_pa_gap_models <- lapply(pa_gap_models, RefitTopModel)
 # Check results
 summary(top_pa_gap_models$RLL_col)
 car::vif(top_pa_gap_models$RLL_col)
+
 
 
 pa_vars <- c("pa_prop", "gap1_prop", "gap2_prop", "gap3_prop")
@@ -1416,199 +1359,5 @@ summary(top_pa_models$DNR_col)
 summary(top_pa_models$DNR_ext)
 summary(top_pa_models$RLL_col)
 summary(top_pa_models$RLL_ext)
-
-
-
-
-
-########################## VISUALIZATIONS ######################################
-
-MakeResponseCurve_fixed <- function(model_col,
-                                    model_ext,
-                                    focal_var,
-                                    data,
-                                    focal_seq = seq(0, 1, length.out = 100),
-                                    custom_baseline = NULL) {
-  
-  vars_col <- all.vars(formula(model_col))[-1]
-  vars_ext <- all.vars(formula(model_ext))[-1]
-  all_vars <- unique(c(vars_col, vars_ext))
-  
-  base_vals <- list()
-  
-  for (v in all_vars) {
-    
-    if (!is.null(custom_baseline) && v %in% names(custom_baseline)) {
-      base_vals[[v]] <- custom_baseline[[v]]
-      
-    } else {
-      if (is.numeric(data[[v]])) {
-        base_vals[[v]] <- median(data[[v]], na.rm = TRUE)
-      } else {
-        base_vals[[v]] <- names(sort(table(data[[v]]), decreasing = TRUE))[1]
-      }
-    }
-  }
-  
-  pred_data <- do.call(expand.grid, base_vals)
-  pred_data <- pred_data[rep(1, length(focal_seq)), ]
-  pred_data[[focal_var]] <- focal_seq
-  
-  # --- COLONIZATION ---
-  col_link <- predict(model_col, newdata = pred_data, type = "link", se.fit = TRUE)
-  
-  col_fit  <- plogis(col_link$fit)
-  col_lwr  <- plogis(col_link$fit - 1.96 * col_link$se.fit)
-  col_upr  <- plogis(col_link$fit + 1.96 * col_link$se.fit)
-  
-  # --- EXTINCTION ---
-  ext_link <- predict(model_ext, newdata = pred_data, type = "link", se.fit = TRUE)
-  
-  ext_fit  <- plogis(ext_link$fit)
-  ext_lwr  <- plogis(ext_link$fit - 1.96 * ext_link$se.fit)
-  ext_upr  <- plogis(ext_link$fit + 1.96 * ext_link$se.fit)
-  
-  data.frame(
-    x = focal_seq,
-    col_fit = col_fit,
-    col_lwr = col_lwr,
-    col_upr = col_upr,
-    ext_fit = ext_fit,
-    ext_lwr = ext_lwr,
-    ext_upr = ext_upr
-  )
-}
-
-
-
-
-
-
-# Start with model variables
-vars_needed_dnr <- unique(c(
-  all.vars(formula(top_pa_models$DNR_col))[-1],
-  all.vars(formula(top_pa_models$DNR_ext))[-1]
-))
-
-# Add gap & manager variables you want to explore
-extra_covs <- c("gap1_prop", "gap2_prop", "gap3_prop", "sdnr_prop", "tnc_prop", "usfs_prop")
-
-# Combine, keeping only columns that exist in your dataset
-vars_needed_dnr <- intersect(c(vars_needed_dnr, extra_covs), names(mod_col_dnr))
-
-dnr_all <- rbind(
-  mod_col_dnr[, vars_needed_dnr, drop = FALSE],
-  mod_ext_dnr[, vars_needed_dnr, drop = FALSE]
-)
-
-
-
-
-vars_needed_rll <- unique(c(
-  all.vars(formula(top_pa_models$RLL_col))[-1],
-  all.vars(formula(top_pa_models$RLL_ext))[-1]
-))
-
-vars_needed_rll <- intersect(c(vars_needed_rll, extra_covs), names(mod_col_rll))
-
-rll_all <- rbind(
-  mod_col_rll[, vars_needed_rll, drop = FALSE],
-  mod_ext_rll[, vars_needed_rll, drop = FALSE]
-)
-
-
-
-
-
-
-
-
-curve_dnr_pa <- MakeResponseCurve_fixed(
-  model_col = top_pa_models$DNR_col,
-  model_ext = top_pa_models$DNR_ext,
-  focal_var = "pa_prop",
-  data = dnr_all
-)
-
-
-curve_rll_pa <- MakeResponseCurve_fixed(
-  model_col = top_pa_models$RLL_col,
-  model_ext = top_pa_models$RLL_ext,
-  focal_var = "pa_prop",
-  data = rll_all
-)
-
-
-
-# Text size
-title_size       <- 16
-subtitle_size    <- 14
-legend_title_size <- 12
-legend_text_size  <- 11
-
-
-
-
-
-ggplot(curve_rll_pa, aes(x = x)) +
-  
-  # Colonization ribbon
-  geom_ribbon(aes(ymin = col_lwr, ymax = col_upr, fill = "Colonization"),
-              alpha = 0.2) +
-  geom_line(aes(y = col_fit, color = "Colonization"),
-            size = 1) +
-  
-  # Extinction ribbon
-  geom_ribbon(aes(ymin = ext_lwr, ymax = ext_upr, fill = "Extinction"),
-              alpha = 0.2) +
-  geom_line(aes(y = ext_fit, color = "Extinction"),
-            size = 1) +
-  
-  scale_color_manual(values = c("Colonization" = "darkorchid",
-                                "Extinction" = "orange")) +
-  
-  scale_fill_manual(values = c("Colonization" = "darkorchid",
-                               "Extinction" = "orange")) +
-  
-  ylim(0, 0.75) +
-  labs(x = "Total PA (%)",
-       y = "Predicted Probability",
-       color = "Process",
-       fill  = "Process",
-       title = "Red-bellied Woodpecker Response") +
-  
-  theme_minimal() +
-  
-  theme(
-    
-    plot.title = element_text(
-      hjust = 0.5,
-      face = "bold",
-      size = title_size,
-      margin = margin(b = 12)
-    ),
-    axis.title.x = element_text(
-      face = "bold",
-      size = axis_title_size,
-      margin = margin(t = 12)
-    ),
-    axis.title.y = element_text(
-      face = "bold",
-      size = axis_title_size,
-      margin = margin(r = 12)
-    ),
-    axis.text.x = element_text(size = axis_text_size, angle = 0, vjust = 0.5),
-    axis.text.y = element_text(size = axis_text_size),
-    
-    legend.title = element_text(face = "bold"),
-    legend.text = element_text(size = 11)
-  ) 
-
-
-
-
-
-
-
 
 

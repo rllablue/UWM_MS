@@ -20,7 +20,7 @@ pacman::p_load(
 ### --- FLEXIBLE SPECS --- ###
 
 # Species to map #
-spp_name <- "Canada Warbler"
+spp_name <- "Red-bellied Woodpecker"
 
 
 
@@ -55,7 +55,6 @@ st_crs(blocks_dnr_sf)
 
 # WI State outline
 state_outline_sf <- st_union(blocks_all_sf)
-
 state_outline_sf <- st_sf(geometry = state_outline_sf)
 
 # Plot to check
@@ -85,12 +84,6 @@ wipad_sf <- st_transform(wipad_sf, 5070)
 st_crs(wipad_sf)
 
 
-
-
-
-### --- DATA ASSOCIATIONS --- ###
-
-
 # Join RAW PA values and atlas blocks
 pa_raw_df <- covars_raw_rll %>%
   dplyr::select(
@@ -101,18 +94,6 @@ pa_raw_df <- covars_raw_rll %>%
     pa_percent = round(pa_prop * 100, 6),
     pa_percent = pmin(pa_percent, 100)
   )
-
-# %>% mutate(pa_percent = pa_prop * 100)
-
-
-blocks_pa_sf <- blocks_all_sf %>%
-  left_join(pa_raw_df, by = "atlas_block")
-
-summary(blocks_pa_sf$pa_prop)
-
-
-
-
 
 
 
@@ -127,7 +108,7 @@ summary(blocks_pa_sf$pa_prop)
 # Atlas Blocks #
 ggplot() +
   geom_sf(data = blocks_all_sf, # blocks_rll_sf, blocks_dnr_sf
-          fill = NA,
+          fill = "white",
           color = "grey40",
           linewidth = 0.2) +
   theme_void() +
@@ -137,7 +118,8 @@ ggplot() +
 # Protected Area (all) #
 ggplot() +
   geom_sf(data = wipad_sf,
-          color = "grey40", # boundaries, add arg linewidth = 
+          color = "turquoise",
+          fill = "turquoise", # boundaries, add arg linewidth = 
           alpha = 0.6) +
   theme_void() +
   labs(title = "Protected Areas in Wisconsin")
@@ -263,233 +245,6 @@ ggplot() +
 
 
 
-
-### NLCD, DayMet ###
-# ENV covars per spp per block set
-
-
-
-# Data Summary Visuals #
-
-
-blocks_species <- spp_zf_rll %>%
-  filter(common_name == spp_name) %>%
-  dplyr::select(atlas_block) %>%
-  distinct()
-
-block_groups <- tibble(
-  atlas_block = unique(blocks_rll)
-) %>%
-  mutate(
-    block_set = case_when(
-      atlas_block %in% blocks_dnr ~ "DNR",
-      atlas_block %in% blocks_rll ~ "RLL"
-    )
-  )
-
-landcover_df <- covars_raw_rll %>%
-  inner_join(block_groups, by = "atlas_block") %>%
-  filter(atlas_block %in% blocks_species$atlas_block) %>%
-  left_join(
-    mod_data_all %>%
-      filter(common_name == spp_name) %>%
-      dplyr::select(atlas_block, transition_state),
-    by = "atlas_block"
-  )
-landcover_df <- landcover_df %>%
-  mutate(
-    response_pair = case_when(
-      transition_state %in% c("Colonization", "Absence") ~ "Col/Abs",
-      transition_state %in% c("Extinction", "Persistence") ~ "Ext/Per"
-    )
-  )
-
-
-
-land_base <- c("water_open_base", "shrub_scrub_base",
-                   "developed_open_base", "developed_low_base", "developed_med_base", "developed_high_base", 
-                   "developed_lower_base", "developed_upper_base", "developed_total_base", 
-                   "forest_deciduous_base", "forest_evergreen_base", "forest_mixed_base", "forest_total_base", 
-                   "pasture_base", "cropland_base", "grassland_base", "grass_pasture_base",
-                   "wetlands_woody_base", "wetlands_herb_base", "wetlands_total_base")
-
-land_diff <- c("water_open_diff", "shrub_scrub_diff",
-               "developed_open_diff", "developed_low_diff", "developed_med_diff", "developed_high_diff", 
-               "developed_lower_diff", "developed_upper_diff", "developed_total_diff", 
-               "forest_deciduous_diff", "forest_evergreen_diff", "forest_mixed_diff", "forest_total_diff", 
-               "pasture_diff", "cropland_diff", "grassland_diff", "grass_pasture_diff",
-               "wetlands_woody_diff", "wetlands_herb_diff", "wetlands_total_diff")
-
-
-# Guilds
-forest = c("developed_total_base", "grass_pasture_base",
-           "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
-           "wetlands_woody_base", "wetlands_herb_base",
-           
-           "forest_total_diff", "wetlands_total_diff")
-
-grass = c("developed_total_base","forest_total_base", "cropland_base",
-          "grassland_base", "pasture_base", "grass_pasture_base",
-          
-          "grassland_diff", "pasture_diff")
-
-marsh = c("water_open_base", "grass_pasture_base",
-          "developed_total_base", "forest_total_base", 
-          "wetlands_woody_base", "wetlands_herb_base",
-          
-          "grass_pasture_diff", "wetlands_total_diff")
-
-water = c("barren_land_base", "water_open_base", "developed_total_base", "grass_pasture_base", 
-          "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
-          "wetlands_woody_base", "wetlands_herb_base",
-          
-          "water_open_diff", "forest_total_diff", 
-          "grass_pasture_diff", "wetlands_total_diff")
-
-
-general = c("barren_land_base", "water_open_base", "developed_total_base",
-            "forest_total_base", "grass_pasture_base", "wetlands_total_base",
-            
-            "forest_total_diff", "grass_pasture_diff", "wetlands_total_diff")
-
-
-
-clim <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
-
-
-pa_raw <- c("pa_prop", "sdnr_prop", "usfs_prop", "tnc_prop", "nas_prop", "gap1_prop", "gap2_prop", "gap3_prop", "gap4_prop")
-
-
-
-
-landcover_long <- landcover_df %>%
-  dplyr::select(atlas_block, block_set, response_pair, all_of(forest)) %>%
-  pivot_longer(
-    cols = all_of(forest),
-    names_to = "landcover",
-    values_to = "proportion"
-  )
-
-
-# Faceted by block set, showing by response (Col or Ext)
-ggplot(landcover_long,
-       aes(x = proportion, fill = response_pair)) +
-  geom_histogram(
-    bins = 20,
-    alpha = 0.6,
-    position = "identity"
-  ) +
-  facet_grid(block_set ~ landcover, scales = "free") +
-  labs(
-    title = paste("Climate Distribution for", spp_name),
-    x = "Proportion of Atlas Block",
-    y = "Number of Blocks",
-    fill = "Response Pair"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold")
-  )
-
-
-# By block set only
-ggplot(landcover_long, aes(x = proportion, fill = block_set)) +
-  geom_histogram(
-    bins = 20,
-    alpha = 0.6,
-    position = "identity"
-  ) +
-  facet_wrap(~landcover, scales = "free") +
-  labs(
-    title = paste("Land Cover Distribution for", spp_name),
-    x = "Proportion of Atlas Block",
-    y = "Number of Blocks",
-    fill = "Block Set"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold")
-  )
-
-
-# By response only
-ggplot(landcover_long,
-       aes(x = proportion, fill = response_pair)) +
-  geom_histogram(
-    bins = 20,
-    alpha = 0.6,
-    position = "identity"
-  ) +
-  facet_wrap(~landcover, scales = "free") +
-  labs(
-    title = paste("Landcover Distribution for", spp_name),
-    x = "Proportion of Atlas Block",
-    y = "Number of Blocks",
-    fill = "Response Pair"
-  ) +
-  theme_minimal()
-
-
-
-
-
-
-# PAD-WIBBA Overlap
-ggplot() +
-  geom_sf(data = blocks_all_sf,
-          fill = NA,
-          color = "grey70",
-          linewidth = 0.1) +
-  geom_sf(data = wipad_sf,
-          fill = "forestgreen",
-          color = NA,
-          alpha = 0.6) +
-  theme_void() +
-  labs(title = "Protected Areas Over Atlas Blocks")
-
-
-
-# WIBBA-PAD subset overlap
-wipad_sdnr <- wipad_sf %>%
-  filter(Own_Name == "SDNR")
-
-ggplot() +
-  geom_sf(data = wipad_sdnr,
-          fill = "darkgreen",
-          color = NA,
-          alpha = 0.7) +
-  theme_void() +
-  labs
-
-
-
-wipad_sdnr <- wipad_sf %>%
-  filter(Own_Name == "SDNR")
-
-ggplot() +
-  # Fill SDNR lands
-  geom_sf(data = wipad_sdnr,
-          fill = "forestgreen",
-          color = NA,
-          alpha = 0.8) +
-  
-  # Outline all PAD lands
-  geom_sf(data = wipad_sf,
-          fill = NA,
-          color = "black",
-          linewidth = 0.2) +
-  
-  theme_void() +
-  labs(
-    title = "Wisconsin Protected Areas",
-    subtitle = "SDNR Lands Highlighted"
-  )
-
-
-
-
-
-
 # Histogram: Distribution of PA across blocks
 pa_raw_df <- pa_raw_df %>%
   mutate(
@@ -562,6 +317,9 @@ ggplot(pa_counts, aes(x = pa_bin, y = count)) +
 
 
 
+
+
+
 ### SPECIES-RESPONSE MAPS ###
 
 # Join two species response dfs, mod_col_rll and mod_ext_rll
@@ -621,13 +379,9 @@ legend_text_size  <- 11
 
 # Plot
 ggplot(blocks_rll_sf) +
-  geom_sf(aes(fill = transition_state), color = "white", linewidth = 0.2) +
+  geom_sf(aes(fill = transition_state), color = NA) +
   
-  # State outline
-  geom_sf(data = state_outline_sf,
-          fill = NA,
-          color = "black",
-          linewidth = 0.75) + 
+  
   scale_fill_manual(
     values = state_colors,
     labels = response_labels,
@@ -651,6 +405,80 @@ ggplot(blocks_rll_sf) +
     legend.title = element_text(face = "bold", size = 12),
     legend.text = element_text(size = 11)
   )
+
+
+
+### Data Pool Maps
+### --- SPECIES RESPONSE MAPS: POOLED MODEL BINS --- ###
+
+# Colonization model universe = Colonization + Absence
+col_bin <- mod_col_rll %>%
+  dplyr::select(atlas_block) %>%
+  mutate(model_bin = "Colonization / Absence")
+
+# Extinction model universe = Extinction + Persistence
+ext_bin <- mod_ext_rll %>%
+  dplyr::select(atlas_block) %>%
+  mutate(model_bin = "Extinction / Persistence")
+
+# Combine pooled bins
+blocks_species_bins <- bind_rows(col_bin, ext_bin)
+
+# Join to sf
+blocks_bins_sf <- blocks_rll_sf %>%
+  dplyr::select(atlas_block, geometry) %>%
+  left_join(blocks_species_bins, by = "atlas_block")
+
+# Count blocks in each pooled bin
+bin_counts <- blocks_bins_sf %>%
+  st_set_geometry(NULL) %>%
+  count(model_bin)
+
+# Set factor order
+blocks_bins_sf$model_bin <- factor(
+  blocks_bins_sf$model_bin,
+  levels = c(
+    "Colonization / Absence",
+    "Extinction / Persistence"
+  )
+)
+
+# Legend labels with total counts
+bin_labels <- paste0(bin_counts$model_bin, " (", bin_counts$n, ")")
+names(bin_labels) <- bin_counts$model_bin
+
+# Colors
+bin_colors <- c(
+  "Colonization / Absence"   = "darkorchid",
+  "Extinction / Persistence" = "orange"
+)
+
+# Plot
+ggplot(blocks_bins_sf) +
+  geom_sf(aes(fill = model_bin), color = NA) +
+  scale_fill_manual(
+    values = bin_colors,
+    labels = bin_labels,
+    na.value = "white",
+    name = "Occurence State Model Bins",
+    guide = guide_legend(
+      label.position = "left",
+      keywidth = 1.5,
+      keyheight = 0.8
+    )
+  ) +
+  labs(
+    title = paste0("Modeling State Space of ", spp_name),
+    subtitle = "Colonization–Absence vs Extinction–Persistence blocks"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold", size = 12),
+    legend.text = element_text(size = 11)
+  )
+
 
 
 
@@ -728,137 +556,275 @@ plot_prediction_map("RLL_ext")
 
 
 
-# Single map/Combined
 
-### --- MODEL RESPONSE MAPS: COMBINED COL/EXT --- ###
-library(dplyr)
-library(ggplot2)
-library(cowplot)
-library(sf)
-library(grid)
-
-# --- 1. Prepare full block table --- #
-spp_name <- "Red-bellied Woodpecker"
 
 
 
 
 
-full_blocks <- blocks_rll_sf %>%
-  st_set_geometry(NULL) %>%
-  dplyr::select(atlas_block) %>%
-  # Join colonization and extinction predictions
-  left_join(col_preds, by = "atlas_block") %>%
-  left_join(ext_preds, by = "atlas_block")
+### --- MODEL RESPONSE MAPS: COMBINED COL/EXT --- ###
 
-# --- 2. Z-score standardization for available predictions ---
-full_blocks <- full_blocks %>%
-  mutate(
-    col_scaled = ifelse(!is.na(col_prob),
-                        (col_prob - mean(col_prob, na.rm = TRUE)) / sd(col_prob, na.rm = TRUE),
-                        NA),
-    ext_scaled = ifelse(!is.na(ext_prob),
-                        (ext_prob - mean(ext_prob, na.rm = TRUE)) / sd(ext_prob, na.rm = TRUE),
-                        NA),
-    # Combined response: handle missing predictions
-    response_surface = case_when(
-      !is.na(col_scaled) & !is.na(ext_scaled) ~ col_scaled - ext_scaled,
-      !is.na(col_scaled) & is.na(ext_scaled)  ~ col_scaled,
-      is.na(col_scaled) & !is.na(ext_scaled)  ~ -ext_scaled,
-      TRUE ~ NA_real_
-    )
+### Conditional Partial Effect Plot ###
+ScalePA <- function(pa_raw, raw_df = covars_raw_rll) {
+  mu <- mean(raw_df$pa_prop, na.rm = TRUE)
+  sdv <- sd(raw_df$pa_prop, na.rm = TRUE)
+  (pa_raw - mu) / sdv
+}
+
+MakePAResponseCurve <- function(model_col,
+                                model_ext,
+                                col_data,
+                                ext_data,
+                                raw_df,
+                                pa_seq = seq(0, 1, length.out = 100)) {
+  
+  pa_scaled <- ScalePA(pa_seq, raw_df)
+  
+  all_data <- bind_rows(col_data, ext_data)
+  
+  vars_col <- all.vars(formula(model_col))[-1]
+  vars_ext <- all.vars(formula(model_ext))[-1]
+  all_vars <- unique(c(vars_col, vars_ext))
+  
+  baseline <- lapply(all_vars, function(v) {
+    if (v == "pa_prop") return(0)
+    median(all_data[[v]], na.rm = TRUE)
+  })
+  names(baseline) <- all_vars
+  
+  pred_data <- as.data.frame(baseline)
+  pred_data <- pred_data[rep(1, length(pa_seq)), ]
+  pred_data$pa_prop <- pa_scaled
+  
+  col_pred <- predict(model_col, newdata = pred_data,
+                      type = "link", se.fit = TRUE)
+  
+  ext_pred <- predict(model_ext, newdata = pred_data,
+                      type = "link", se.fit = TRUE)
+  
+  tibble(
+    pa_raw = pa_seq,
+    col_fit = plogis(col_pred$fit),
+    col_lwr = plogis(col_pred$fit - 1.96 * col_pred$se.fit),
+    col_upr = plogis(col_pred$fit + 1.96 * col_pred$se.fit),
+    ext_fit = plogis(ext_pred$fit),
+    ext_lwr = plogis(ext_pred$fit - 1.96 * ext_pred$se.fit),
+    ext_upr = plogis(ext_pred$fit + 1.96 * ext_pred$se.fit)
   )
+}
 
-# --- 3. Rescale response_surface to -1 -> 1 ---
-max_abs <- max(abs(full_blocks$response_surface), na.rm = TRUE)
-full_blocks <- full_blocks %>%
-  mutate(response_scaled = response_surface / max_abs)
 
-# --- 4. Join back to spatial blocks --- #
-blocks_combined_sf <- blocks_rll_sf %>%
-  left_join(full_blocks %>% dplyr::select(atlas_block, response_scaled), by = "atlas_block")
+MakeObservedPA <- function(col_data,
+                           ext_data,
+                           raw_df,
+                           bins = 12) {
+  
+  raw_lookup <- raw_df %>%
+    dplyr::select(atlas_block, pa_raw = pa_prop) %>%
+    distinct()
+  
+  col_obs <- col_data %>%
+    left_join(raw_lookup, by = "atlas_block") %>%
+    mutate(bin = cut(pa_raw, breaks = bins)) %>%
+    group_by(bin) %>%
+    summarise(
+      pa_raw = mean(pa_raw, na.rm = TRUE),
+      prob = mean(col, na.rm = TRUE),
+      process = "Colonization",
+      .groups = "drop"
+    )
+  
+  ext_obs <- ext_data %>%
+    left_join(raw_lookup, by = "atlas_block") %>%
+    mutate(bin = cut(pa_raw, breaks = bins)) %>%
+    group_by(bin) %>%
+    summarise(
+      pa_raw = mean(pa_raw, na.rm = TRUE),
+      prob = mean(ext, na.rm = TRUE),
+      process = "Extinction",
+      .groups = "drop"
+    )
+  
+  bind_rows(col_obs, ext_obs)
+}
 
-# --- 5. Define legend ticks ---
-numeric_ticks <- c(-1, -0.5, 0, 0.5, 1)
+curve_pa <- MakePAResponseCurve(
+  pa_glm_models$RLL_col,
+  pa_glm_models$RLL_ext,
+  mod_col_rll,
+  mod_ext_rll,
+  covars_raw_rll
+)
 
-# --- 6. Map with PA overlay --- #
-map_pa_plot <- ggplot() +
-  geom_sf(data = blocks_combined_sf,
-          aes(fill = response_scaled),
-          color = NA) +
-  geom_sf(data = wipad_sf,
-          fill = "grey40",
-          alpha = 0.1,
-          color = "black",
-          linewidth = 0.00025) +
-  scale_fill_gradient2(
-    low = "orange",
-    mid = "white",
-    high = "darkorchid",
-    midpoint = 0,
-    limits = c(-1, 1),
-    na.value = "grey90",
-    name = "Pressure",
-    guide = "none"
-  ) +
-  coord_sf(expand = FALSE) +
-  theme_void() +
-  labs(title = "Colonization vs Extinction Pressure over Protected Areas") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
-
-# --- 7. Legend --- #
-legend_plot <- ggplot(blocks_combined_sf) +
-  geom_tile(aes(x = response_scaled, y = 1, fill = response_scaled)) +
-  scale_fill_gradient2(
-    low = "orange",
-    mid = "white",
-    high = "darkorchid",
-    midpoint = 0,
-    limits = c(-1, 1),
-    breaks = numeric_ticks,
-    labels = numeric_ticks,
-    guide = guide_colorbar(
-      direction = "horizontal",
-      barwidth = unit(8, "cm"),
-      barheight = unit(0.35, "cm"),
-      ticks.colour = "black",
-      title.position = "top",
-      label.position = "bottom"
-    ),
-    name = NULL
-  ) +
-  annotate(
-    "text", x = c(-1, 0, 1), y = 1.05,
-    label = c("Extinction", "Stable", "Colonization"),
-    size = 3.5,
-    fontface = "bold"
-  ) +
-  theme_void() +
-  theme(legend.position = "bottom")
-
-# --- 8. Combine map + legend --- #
-plot_grid(
-  map_pa_plot,
-  legend_plot,
-  ncol = 1,
-  rel_heights = c(0.9, 0.1)
+obs_pa <- MakeObservedPA(
+  mod_col_rll,
+  mod_ext_rll,
+  covars_raw_rll
 )
 
 
+ggplot(curve_pa, aes(x = pa_raw)) +
+  geom_ribbon(aes(ymin = col_lwr, ymax = col_upr, fill = "Colonization"),
+              alpha = 0.2) +
+  geom_line(aes(y = col_fit, color = "Colonization"), linewidth = 1) +
+  
+  geom_ribbon(aes(ymin = ext_lwr, ymax = ext_upr, fill = "Extinction"),
+              alpha = 0.2) +
+  geom_line(aes(y = ext_fit, color = "Extinction"), linewidth = 1) +
+  
+  geom_point(data = obs_pa,
+             aes(y = prob, color = process),
+             size = 2.5) +
+  
+  scale_color_manual(values = c(
+    Colonization = "darkorchid",
+    Extinction = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    Colonization = "darkorchid",
+    Extinction = "orange"
+  )) +
+  scale_x_continuous(labels = scales::percent) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "Protected Area (%)",
+    y = "Transition Probability",
+    title = paste(spp_name, "Conditional Partial PA Response")
+  ) +
+  theme_minimal()
 
 
 
-################################ WIP NEW WORKFLOW ############################
 
-library(dplyr)
-library(ggplot2)
-library(sf)
-library(cowplot)
-library(grid)
 
-# ==============================
-# --- COMBINED COL/EXT MAP ---
-# ==============================
+### Avg Marginal Predictions Plot ###
+ScalePA <- function(pa_raw, raw_df = covars_raw_rll) {
+  mu <- mean(raw_df$pa_prop, na.rm = TRUE)
+  sdv <- sd(raw_df$pa_prop, na.rm = TRUE)
+  (pa_raw - mu) / sdv
+}
+
+
+MakeAvgMarginalPA_CI <- function(model_col,
+                                 model_ext,
+                                 col_data,
+                                 ext_data,
+                                 raw_df,
+                                 pa_seq = seq(0, 1, length.out = 100),
+                                 n_sims = 500) {
+  
+  col_sims <- arm::sim(model_col, n.sims = n_sims)
+  ext_sims <- arm::sim(model_ext, n.sims = n_sims)
+  
+  curve_list <- lapply(pa_seq, function(pa_val) {
+    
+    pa_scaled <- ScalePA(pa_val, raw_df)
+    
+    col_new <- col_data
+    ext_new <- ext_data
+    
+    col_new$pa_prop <- pa_scaled
+    ext_new$pa_prop <- pa_scaled
+    
+    # model matrix
+    X_col <- model.matrix(formula(model_col), col_new)
+    X_ext <- model.matrix(formula(model_ext), ext_new)
+    
+    # simulate predictions
+    col_draws <- apply(col_sims@coef, 1, function(b) {
+      mean(plogis(X_col %*% b))
+    })
+    
+    ext_draws <- apply(ext_sims@coef, 1, function(b) {
+      mean(plogis(X_ext %*% b))
+    })
+    
+    tibble(
+      pa_raw = pa_val,
+      col_fit = mean(col_draws),
+      col_lwr = quantile(col_draws, 0.025),
+      col_upr = quantile(col_draws, 0.975),
+      ext_fit = mean(ext_draws),
+      ext_lwr = quantile(ext_draws, 0.025),
+      ext_upr = quantile(ext_draws, 0.975)
+    )
+  })
+  
+  bind_rows(curve_list)
+}
+
+
+curve_avg_pa <- MakeAvgMarginalPA_CI(
+  pa_glm_models$RLL_col,
+  pa_glm_models$RLL_ext,
+  mod_col_rll,
+  mod_ext_rll,
+  covars_raw_rll
+)
+
+
+obs_pa <- MakeObservedPA(
+  mod_col_rll,
+  mod_ext_rll,
+  covars_raw_rll,
+  bins = 12
+)
+
+ggplot(curve_avg_pa, aes(x = pa_raw)) +
+  
+  geom_ribbon(
+    aes(ymin = col_lwr, ymax = col_upr, fill = "Colonization"),
+    alpha = 0.2
+  ) +
+  geom_line(
+    aes(y = col_fit, color = "Colonization"),
+    linewidth = 1.2
+  ) +
+  
+  geom_ribbon(
+    aes(ymin = ext_lwr, ymax = ext_upr, fill = "Extinction"),
+    alpha = 0.2
+  ) +
+  geom_line(
+    aes(y = ext_fit, color = "Extinction"),
+    linewidth = 1.2
+  ) +
+  
+  geom_point(
+    data = obs_pa,
+    aes(y = prob, color = process),
+    size = 2.5,
+    alpha = 0.85
+  ) +
+  
+  scale_color_manual(values = c(
+    Colonization = "darkorchid",
+    Extinction = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    Colonization = "darkorchid",
+    Extinction = "orange"
+  )) +
+  
+  scale_x_continuous(labels = scales::percent) +
+  coord_cartesian(ylim = c(0, 1)) +
+  
+  labs(
+    x = "Protected Area (%)",
+    y = "Average Predicted Transition Probability",
+    title = paste(spp_name, "Average Marginal PA Response"),
+    color = "Process",
+    fill = "Process"
+  ) +
+  theme_minimal()
+
+
+
+
+
+
+### --- MODEL RESPONSE MAPS: COMBINED COL/EXT W PA --- ###
+
 
 # --- 1. Pull colonization & extinction predictions from block_predictions_df --- #
 col_preds <- block_predictions_df %>%
@@ -913,9 +879,9 @@ map_pa_plot <- ggplot() +
           color = NA) +
   geom_sf(data = wipad_sf,
           fill = "grey40",
-          alpha = 0.1,
+          alpha = 0.2,
           color = "black",
-          linewidth = 0.00025) +
+          linewidth = 0.03) +
   scale_fill_gradient2(
     low = "orange",
     mid = "white",
@@ -968,3 +934,136 @@ plot_grid(
   ncol = 1,
   rel_heights = c(0.9, 0.1)
 )
+
+
+
+
+
+### --- SPECIES PA CATERPILLAR PLOT --- ### 
+
+
+write.csv(rll_results_df,"outputs/data/basepa_effects_rll.csv")
+rll_results_df <- read.csv("outputs/data/basepa_effects_rll.csv")
+
+
+# Caterpillar Plot
+
+caterpillar_df <- rll_results_df %>%
+  group_by(species, response) %>%
+  mutate(strength = max(abs(estimate), na.rm = TRUE)) %>%
+  ungroup()
+
+
+# Plot
+
+PlotEffects <- function(df, species_keep = NULL) {
+  
+  # Species filter
+  if (!is.null(species_keep)) {
+    df <- df %>%
+      filter(species %in% species_keep)
+  }
+  
+  # Rank order
+  df <- df %>%
+    group_by(species) %>%
+    mutate(strength = max(abs(estimate), na.rm = TRUE)) %>%
+    ungroup()
+  
+  dodge <- position_dodge(width = 0.5)
+  
+  ggplot(
+    df,
+    aes(
+      x = estimate,
+      y = reorder(species, strength),
+      color = response,
+      group = response
+    )
+  ) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    
+    geom_errorbar(
+      aes(xmin = conf.low, xmax = conf.high),
+      orientation = "y",
+      width = 0.2,
+      position = dodge
+    ) +
+    
+    geom_point(
+      aes(shape = sig),
+      size = 2.8,
+      stroke = 1,
+      fill = "white",
+      position = dodge
+    ) +
+    
+    scale_shape_manual(values = c("yes" = 16, "no" = 1)) +
+    
+    scale_color_manual(
+      values = c("col" = "#1f78b4", "ext" = "tomato")
+    ) +
+    
+    labs(
+      x = "PA Effect (log-odds)",
+      y = "Species",
+      color = "Response",
+      shape = "Significant"
+    ) +
+    
+    theme_minimal()
+}
+
+
+
+
+species_subset <- c(
+  "Canada Warbler",
+  "Hooded Warbler",
+  "Cerulean Warbler",
+  "Winter Wren",
+  "Olive-sided Flycatcher",
+  "Henslow's Sparrow"
+)
+
+
+species_subset <- c(
+  "Dickcissel",
+  "Northern Cardinal",
+  "Orchard Oriole",
+  "Red-bellied Woodpecker",
+  "Tufted Titmouse"
+)
+
+
+species_subset <- c(
+  "Dickcissel",
+  "Bobolink",
+  "Eastern Meadowlark",
+  "Grasshopper Sparrow",
+  "Henslow's Sparrow",
+  "Upland Sandpiper"
+)
+
+
+species_subset <- c(
+  "Ruby-crowned Kinglet",
+  "Canada Jay",
+  "Olive-sided Flycatcher",
+  "Canada Warbler",
+  "Winter Wren",
+  "Northern Waterthrush",
+  "Cape May Warbler",
+  "Evening Grosbeak"
+)
+
+
+
+plot_rll <- PlotEffects(
+  caterpillar_df,
+  species_keep = species_subset
+)
+
+plot_rll
+
+

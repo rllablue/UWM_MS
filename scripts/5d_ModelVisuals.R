@@ -488,7 +488,7 @@ ggplot(blocks_bins_sf) +
 ### --- MODEL RESPONSE MAPS --- ###
 # Predicted Probabilities w/ PA
 
-# Separate Maps
+# ENV AND PA
 predict_by_block <- function(model_name){
   
   model_obj  <- pa_glm_models[[model_name]]
@@ -556,9 +556,168 @@ plot_prediction_map("RLL_ext")
 
 
 
+### PA EFFECT PLOT
+
+### --- FACETED PA OCCUPANCY EFFECT MAP --- ###
+
+
+# ==============================
+# 1) FUNCTION: partial PA effect by block
+# ==============================
+predict_pa_effect_by_block <- function(model_name){
+  
+  model_obj  <- pa_glm_models[[model_name]]
+  model_data <- data_dir[[model_name]]
+  
+  # Prediction with observed PA
+  pred_obs <- predict(
+    model_obj,
+    newdata = model_data,
+    type = "response"
+  )
+  
+  # Counterfactual: remove PA
+  no_pa_data <- model_data
+  no_pa_data$pa_prop <- 0
+  
+  pred_no_pa <- predict(
+    model_obj,
+    newdata = no_pa_data,
+    type = "response"
+  )
+  
+  # Partial PA contribution
+  model_data$pa_effect <- pred_obs - pred_no_pa
+  
+  # Average to atlas block
+  model_data %>%
+    group_by(atlas_block) %>%
+    summarise(
+      pa_effect = mean(pa_effect, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(model_name = model_name)
+}
+
+
+# ==============================
+# 2) GET COL + EXT BLOCK EFFECTS
+# ==============================
+col_pa <- predict_pa_effect_by_block("RLL_col") %>%
+  mutate(
+    model_bin = "Colonization / Absence",
+    pa_effect_signed = pa_effect
+  )
+
+ext_pa <- predict_pa_effect_by_block("RLL_ext") %>%
+  mutate(
+    model_bin = "Extinction / Persistence",
+    pa_effect_signed = -pa_effect
+  )
+
+
+# ==============================
+# 3) COMBINE FOR FACETING
+# ==============================
+pa_turnover_facet_df <- bind_rows(col_pa, ext_pa)
+
+
+# ==============================
+# 4) SHARED SYMMETRIC COLOR SCALE
+# ==============================
+max_abs <- max(
+  abs(pa_turnover_facet_df$pa_effect_signed),
+  na.rm = TRUE
+)
+
+
+# ==============================
+# 5) JOIN TO SPATIAL BLOCKS
+# ==============================
+blocks_pa_facet_sf <- blocks_rll_sf %>%
+  dplyr::select(atlas_block, geometry) %>%
+  left_join(pa_turnover_facet_df, by = "atlas_block")
+
+
+# ==============================
+# 6) FINAL FACETED MAP
+# ==============================
+
+ggplot() +
+  
+  # block-level PA effect
+  geom_sf(
+    data = blocks_pa_facet_sf,
+    aes(fill = pa_effect_signed),
+    color = NA
+  ) +
+  
+  # subtle PAD overlay
+  geom_sf(
+    data = wipad_sf,
+    fill = "grey20",
+    color = NA,
+    alpha = 0.08
+  ) +
+  
+  # Wisconsin state outline
+  geom_sf(
+    data = state_outline_sf,
+    fill = NA,
+    color = "black",
+    linewidth = 0.25
+  ) +
+  
+  facet_wrap(~model_bin) +
+  
+  scale_fill_gradient2(
+    low = "orange",
+    mid = "white",
+    high = "darkorchid",
+    midpoint = 0,
+    limits = c(-max_abs, max_abs),
+    oob = scales::squish,
+    name = "PA occupancy\neffect"
+  ) +
+  
+  coord_sf(expand = FALSE) +
+  theme_void() +
+  
+  labs(
+    title = paste("Protected Area Contribution to", spp_name, "Occupancy"),
+    subtitle = "Purple = supports occupancy, Orange = undermines occupancy"
+  ) +
+  
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold",
+      size = 16
+    ),
+    plot.subtitle = element_text(
+      hjust = 0.5,
+      size = 12
+    ),
+    strip.text = element_text(
+      face = "bold",
+      size = 12
+    ),
+    legend.title = element_text(face = "bold")
+  )
 
 
 
+
+
+
+
+
+
+geom_sf(data = wipad_sf,
+        fill = "grey40",
+        alpha = 0.2,
+        color = "black",
+        linewidth = 0.03) +
 
 
 

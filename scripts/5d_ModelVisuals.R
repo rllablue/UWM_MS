@@ -78,7 +78,6 @@ wipad_sf <- st_read(
 names(wipad_sf)
 st_crs(wipad_sf)
 
-
 # transformation, CRS: Conus Albers, NAD83, EPSG:5070
 wipad_sf <- st_transform(wipad_sf, 5070)
 st_crs(wipad_sf)
@@ -386,10 +385,10 @@ ggplot(blocks_rll_sf) +
     values = state_colors,
     labels = response_labels,
     na.value = "white",
-    name = "Occurence State",
+    name = paste0(spp_name, " Occurence State"),
     guide = guide_legend(
-      label.position = "left",   # moves the text to the left of the swatch
-      keywidth = 1.5,            # adjust swatch width
+      label.position = "",   # moves the text to the left of the swatch
+      keywidth = 1,            # adjust swatch width
       keyheight = 0.8,
       reverse = FALSE
     )
@@ -1207,3 +1206,149 @@ plot_rll <- PlotEffects(
 plot_rll
 
 
+
+
+
+
+
+### BOLDED NAMES COMP CATERPILLAR 
+
+# -----------------------------
+# Define the two species groups
+# -----------------------------
+
+# Group you want emphasized (bold labels)
+species_focus <- c(
+  "Dickcissel",
+  "Northern Cardinal",
+  "Orchard Oriole",
+  "Red-bellied Woodpecker"
+)
+
+# Comparison group
+species_compare <- c(
+  "Ruby-crowned Kinglet",
+  "Olive-sided Flycatcher",
+  "Canada Warbler",
+  "Winter Wren"
+)
+
+# Combine both groups for plotting
+species_subset <- c(species_focus, species_compare)
+
+
+# -----------------------------
+# Plot function
+# -----------------------------
+
+PlotEffects <- function(df,
+                        species_keep = NULL,
+                        species_bold = NULL) {
+  
+  # Filter to only chosen species
+  if (!is.null(species_keep)) {
+    df <- df %>%
+      filter(species %in% species_keep)
+  }
+  
+  # Rank species by strongest absolute effect
+  df <- df %>%
+    group_by(species) %>%
+    mutate(strength = max(abs(estimate), na.rm = TRUE)) %>%
+    ungroup()
+  
+  # Create axis labels (bold only selected species)
+  species_order <- df %>%
+    distinct(species, strength) %>%
+    arrange(strength) %>%
+    pull(species)
+  
+  axis_labels <- species_order
+  
+  if (!is.null(species_bold)) {
+    axis_labels <- ifelse(
+      species_order %in% species_bold,
+      paste0("bold('", species_order, "')"),
+      paste0("'", species_order, "'")
+    )
+  }
+  
+  names(axis_labels) <- species_order
+  
+  dodge <- position_dodge(width = 0.5)
+  
+  ggplot(
+    df,
+    aes(
+      x = estimate,
+      y = reorder(species, strength),
+      color = response,
+      group = response
+    )
+  ) +
+    
+    geom_vline(
+      xintercept = 0,
+      linetype = "dashed"
+    ) +
+    
+    geom_errorbar(
+      aes(
+        xmin = conf.low,
+        xmax = conf.high
+      ),
+      orientation = "y",
+      width = 0.2,
+      position = dodge
+    ) +
+    
+    geom_point(
+      aes(shape = sig),
+      size = 2.8,
+      stroke = 1,
+      fill = "white",
+      position = dodge
+    ) +
+    
+    scale_shape_manual(
+      values = c(
+        "yes" = 16,
+        "no" = 1
+      )
+    ) +
+    
+    scale_color_manual(
+      values = c(
+        "col" = "#1f78b4",
+        "ext" = "tomato"
+      )
+    ) +
+    
+    scale_y_discrete(
+      labels = parse(text = axis_labels)
+    ) +
+    
+    labs(
+      x = "Protected Area Effect (log-odds)",
+      color = "Response",
+      shape = "Significant"
+    ) +
+    
+    theme_minimal() +
+    theme(
+      axis.text.y = element_text(size = 11)
+    )
+}
+
+
+# -----------------------------
+# Final plot
+# -----------------------------
+
+plot_rll <- PlotEffects(
+  caterpillar_df,
+  species_keep = species_subset,
+  species_bold = species_focus   # <- bold only Dickcissel group
+)
+
+plot_rll

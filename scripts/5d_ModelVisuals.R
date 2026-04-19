@@ -20,7 +20,7 @@ pacman::p_load(
 ### --- FLEXIBLE SPECS --- ###
 
 # Species to map #
-spp_name <- "Red-bellied Woodpecker"
+spp_name <- "Canada Warbler"
 
 
 
@@ -37,19 +37,14 @@ blocks_rll_sf <- blocks_all_sf %>%
   filter(atlas_block %in% blocks_rll)
 crs(blocks_rll_sf)
 
-blocks_dnr_sf <- blocks_all_sf %>%
-  filter(atlas_block %in% blocks_dnr)
-crs(blocks_dnr_sf)
-
 
 # transformation, CRS: Conus Albers, NAD83, EPSG:5070
 blocks_all_sf <- st_transform(blocks_all_sf, 5070)
 blocks_rll_sf <- st_transform(blocks_rll_sf, 5070)
-blocks_dnr_sf <- st_transform(blocks_dnr_sf, 5070)
 
 st_crs(blocks_all_sf)
 st_crs(blocks_rll_sf)
-st_crs(blocks_dnr_sf)
+
 
 
 
@@ -387,7 +382,7 @@ ggplot(blocks_rll_sf) +
     na.value = "white",
     name = paste0(spp_name, " Occurence State"),
     guide = guide_legend(
-      label.position = "",   # moves the text to the left of the swatch
+      label.position = "left",   # moves the text to the left of the swatch
       keywidth = 1,            # adjust swatch width
       keyheight = 0.8,
       reverse = FALSE
@@ -610,7 +605,7 @@ col_pa <- predict_pa_effect_by_block("RLL_col") %>%
 
 ext_pa <- predict_pa_effect_by_block("RLL_ext") %>%
   mutate(
-    model_bin = "Extinction / Persistence",
+    model_bin = "Extirpation / Persistence",
     pa_effect_signed = -pa_effect
   )
 
@@ -652,9 +647,11 @@ ggplot() +
   ) +
   
   # subtle PAD overlay
-  geom_sf(data = wipad_sf,
-          fill = "grey40",
-          alpha = 0.05) +
+  geom_sf(
+    data = wipad_sf,
+    fill = "grey40",
+    alpha = 0.05
+  ) +
   
   facet_wrap(~model_bin) +
   
@@ -665,15 +662,22 @@ ggplot() +
     midpoint = 0,
     limits = c(-max_abs, max_abs),
     oob = scales::squish,
-    name = "PA effect"
+    name = "PA Effect",
+    guide = guide_colorbar(
+      direction = "horizontal",
+      title.position = "top",
+      title.hjust = 0.5,
+      barwidth = unit(8, "cm"),
+      barheight = unit(0.4, "cm")
+    )
   ) +
   
   coord_sf(expand = FALSE) +
   theme_void() +
   
   labs(
-    title = paste("Protected Area Contribution to", spp_name, "Occurence"),
-    subtitle = "Purple = supports occurence, Orange = undermines occurence"
+    title = paste("Protected Area Contribution to", spp_name, "Occurrence"),
+    subtitle = "Purple = supports occurrence, Orange = undermines occurrence"
   ) +
   
   theme(
@@ -690,7 +694,11 @@ ggplot() +
       face = "bold",
       size = 12
     ),
-    legend.title = element_text(face = "bold")
+    legend.position = "bottom",   # puts legend below plot
+    legend.title = element_text(
+      face = "bold",
+      hjust = 0.5
+    )
   )
 
 

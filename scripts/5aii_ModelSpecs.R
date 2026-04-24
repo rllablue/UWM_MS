@@ -52,10 +52,17 @@ options(na.action = "na.fail") # required for MuMIn
 
 ### --- DATA --- ###
 
-# Upload, Wrangle Data #
+# Bird Data #
 spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") # df
 spp_list <- unique(spp_zf_rll$common_name) # vector
 
+spp_guilds <- read.csv("data/summaries/species_guilds.csv")
+
+spp_zf_rll <- spp_zf_rll %>%
+  left_join(spp_guilds, by = "common_name")
+
+
+# Covariate Data #
 covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
 covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
   mutate(across(
@@ -63,30 +70,43 @@ covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
     .fns = ~ as.numeric(scale(.))
   ))
 
+
+# Atlas Block Data #
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
+  rename(
+    atlas_block = BLOCK_ID,
+    priority_block = BLOCK_STAT
+  ) %>%
+  mutate(
+    priority_block = case_when(
+      priority_block %in% c("Regular Block", "Specialty Block") ~ 0,
+      priority_block %in% c("Priority Block") ~ 1,
+      TRUE ~ NA_real_
+    )
+  )
+
+
 wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
 blocks_rll <- wibba_summary_rll$atlas_block # vector
 
+blocks_rll_sf <- blocks_all_sf %>%
+  filter(atlas_block %in% blocks_rll)
 
-
-# Create Guilds #
-# spp_guilds <- tibble(
-#  common_name = unique(spp_zf_rll$common_name),
-#  guild = NA_character_
-#)
-
-# write.csv(spp_guilds, "data/summaries/species_guilds.csv", row.names = FALSE)
-spp_guilds <- read.csv("data/summaries/species_guilds.csv")
-
-spp_zf_rll <- spp_zf_rll %>%
-  left_join(spp_guilds, by = "common_name")
 
 
 
 # FULL MODELING DF #
-# all zero-filled species, z-scaled covariate data
+# Coalesce data sources, incl. z-scales values
 mod_data_all <- spp_zf_rll %>%
-  left_join(covars_z_rll, by = "atlas_block")
-# write.csv(mod_data_all, "outputs/data/mod_data_all.csv", row.names = FALSE)
+  left_join(covars_z_rll, by = "atlas_block") %>%
+  left_join(
+    blocks_rll_sf %>%
+      st_drop_geometry() %>%
+      dplyr::select(atlas_block, priority_block) %>%
+      mutate(priority_block = as.integer(priority_block)),
+    by = "atlas_block"
+  )
+#write.csv(mod_data_all, "outputs/data/mod_data_all.csv", row.names = FALSE)
 
 
 
@@ -109,69 +129,7 @@ pa_results_df <- data.frame()
 # what promotes det = 0. Colonization = col + abs data, Extinction = ext + pre data
 ### Scaling of covars w/in subsets for relevant normalized values
 
-# Species to model
-spp_alpha <- "CAWA"
-spp_name <- "Canada Warbler"
-
-
-# Helper: Build filtered modeling dfs
-BuildSppRespDfs <- function(data,
-                            species,
-                            block_vector = NULL,
-                            state_pairs,
-                            response_name,
-                            response_one) {
-  
-  df <- data %>%
-    filter(alpha_code == species)
-  
-  if (!is.null(block_vector)) {
-    df <- df %>% filter(atlas_block %in% block_vector)
-  }
-  
-  df %>%
-    filter(transition_state %in% state_pairs) %>%
-    mutate(
-      !!response_name := ifelse(transition_state == response_one, 1, 0)
-    )
-}
-
-
-
-
-# Apply: create species-state-specific dfs
-
-# Col-RLL
-mod_col_rll <- BuildSppRespDfs(
-  data = mod_data_all,
-  species = spp_alpha,
-  block_vector = blocks_rll,
-  state_pairs = c("Colonization", "Absence"),
-  response_name = "col",
-  response_one = "Colonization"
-)
-
-# Ext-RLL
-mod_ext_rll <- BuildSppRespDfs(
-  data = mod_data_all,
-  species = spp_alpha,
-  block_vector = blocks_rll,
-  state_pairs = c("Extinction", "Persistence"),
-  response_name = "ext",
-  response_one = "Extinction"
-)
-
-
-
-# Store in list
-mod_dfs_all <- list(
-  col_rll = mod_col_rll,
-  ext_rll = mod_ext_rll
-)
-
-
-# DATA SUMMARIES #
-### Counts of each response type per species (247) and block set (3337, 858)
+## SPECIES COUNTS ##
 rll_spp_counts <- mod_data_all %>%
   filter(atlas_block %in% blocks_rll) %>%
   count(common_name, transition_state) %>%
@@ -233,6 +191,66 @@ rll_valid_counts <- mod_data_all %>%
 
 
 
+## SPECIES MODELED ##
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
+
+
+# Helper: Build filtered modeling dfs
+BuildSppRespDfs <- function(data,
+                            species,
+                            block_vector = NULL,
+                            state_pairs,
+                            response_name,
+                            response_one) {
+  
+  df <- data %>%
+    filter(alpha_code == species)
+  
+  if (!is.null(block_vector)) {
+    df <- df %>% filter(atlas_block %in% block_vector)
+  }
+  
+  df %>%
+    filter(transition_state %in% state_pairs) %>%
+    mutate(
+      !!response_name := as.integer(
+        ifelse(transition_state == response_one, 1, 0)
+      )
+    )
+}
+
+
+
+# Apply: Colonization Model (Col + Abs)
+mod_col_rll <- BuildSppRespDfs(
+  data = mod_data_all,
+  species = spp_alpha,
+  block_vector = blocks_rll,
+  state_pairs = c("Colonization", "Absence"),
+  response_name = "col",
+  response_one = "Colonization"
+)
+
+# Apply: Extinction Model (Ext + Per)
+mod_ext_rll <- BuildSppRespDfs(
+  data = mod_data_all,
+  species = spp_alpha,
+  block_vector = blocks_rll,
+  state_pairs = c("Extinction", "Persistence"),
+  response_name = "ext",
+  response_one = "Extinction"
+)
+
+
+# Store in list
+mod_dfs_all <- list(
+  col_rll = mod_col_rll,
+  ext_rll = mod_ext_rll
+)
+
+
+
 
 ##################
 ### COVARIATES ###
@@ -241,7 +259,8 @@ rll_valid_counts <- mod_data_all %>%
 # FULL DATASET #
 factor_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
 
-stable_covs_all <- c("lon", "lat", "sr_diff", "pa_prop", # total prop pa per block 
+stable_covs_all <- c("lon", "lat", "sr_diff", "priority_block", "pa_prop", # total prop pa per block 
+                     
                      "sdnr_prop", "usfs_prop", "tnc_prop", "nas_prop", # manager prop of total pa per block
                      "gap1_prop", "gap2_prop", "gap3_prop") # gap status prop of total pa per block
 
@@ -267,8 +286,8 @@ climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
 
 ### --- COVARIATE SUBSETS --- ###
 
-### ECOLOGICAL FILTERS ###
-### Habitat guilds to bin land cover covariates
+## ECOLOGICAL FILTERS ##
+### Habitat guilds to bin land covariates
 
 # Inputs
 guild_key <- list(
@@ -324,12 +343,11 @@ GetGuildCovs <- function(species, data, guild_map) {
 }
 
 
-# Subset outputs
+# Apply: Species Specific Covariate Sets
 factor_covs_reduced <- c("atlas_block", "transition_state")
-stable_covs_reduced <- c("sr_diff") # no pa in this stage
+stable_covs_reduced <- c("sr_diff", "priority_block") # no pa in this stage
 land_covs_reduced <- GetGuildCovs(spp_alpha, mod_data_all, guild_key)
 climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", # base year values
-                          
                           "tmax_diff", "tmin_diff", "prcp_diff") # change values
 
 numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_reduced)
@@ -441,13 +459,10 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # stable_covars_reduced
 
 guild_key
-land_covs_reduced <- c("developed_total_base", "cropland_base", "grassland_base",       
-                       "pasture_base",
-                       
-                       "grassland_diff")
+land_covs_reduced <- c()
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "tmin_diff", "prcp_diff")
+climate_covs_reduced <- c()
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -508,11 +523,7 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
-                       "forest_mixed_base", "forest_evergreen_base", 
-                       "wetlands_total_base", 
-                       
-                       "forest_total_diff", "wetlands_total_diff")
+land_covs_reduced <- c()
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
 climate_covs_reduced <- c()
@@ -573,7 +584,7 @@ names(vif_results) <- names(mod_dfs_all)
 
 ### DATA ###
 
-effort_covar <- "sr_diff"
+effort_covars <- c("sr_diff", "priority_block")
 
 
 
@@ -641,7 +652,7 @@ BuildPartitionedRHS <- function(covariates, required) {
 FitPartitionedModels <- function(response, 
                                  data, 
                                  covariates, 
-                                 required = effort_covar,
+                                 required = effort_covars,
                                  family = binomial,
                                  include_null = TRUE) {
   
@@ -804,23 +815,23 @@ merged_ref_covariates <- MergePartitionedCovariates(reference_part_covariates)
 
 
 
-### --- STEP 2: GLOBAL ENV MODELS --- ###
+### --- STEP 2: ENV MODEL SELECTION --- ###
 
 ### Combine climate, land covars lists from partitioned models into single covar list/pool for 
 # new additive mod selection process; find new ref model to carry into interaction step (2B).
 
-effort_covar <- "sr_diff"
+effort_covars <- c("sr_diff", "priority_block")
 
 
 merged_ref_covariates <- lapply(
   merged_ref_covariates,
-  function(covs) unique(c(covs)) # WIP: removed pa_covar
+  function(covs) unique(c(covs))
 )
 
 
 
 BuildGlobalRHS <- function(covariates,
-                           forced = effort_covar) { # WIP: removed pa_covar
+                           forced = effort_covars) {
   
   covariates <- unique(covariates)
   
@@ -861,7 +872,7 @@ FitGlobalModels <- function(response,
   
   rhs_terms <- BuildGlobalRHS(
     covariates = covariates,
-    forced     = effort_covar
+    forced     = effort_covars
   )
   
   models <- list()
@@ -913,7 +924,7 @@ reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
 
 
 
-### --- STEP 3: ENV MODELING --- ###
+### --- STEP 3: ENV MODEL FITTING, DIAGNOSTICS --- ###
 
 # Model data (responses: col, abs)
 data_dir <- list(
@@ -960,7 +971,7 @@ vif_global_models
 
 
 
-### --- 4: GLOBAL PA MODELS, MODELING --- ###
+### --- 4: GLOBAL PA MODELS --- ###
 
 pa_covar <- c("pa_prop")
 

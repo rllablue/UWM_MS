@@ -34,6 +34,8 @@ library(ggplot2)
 library(viridis)
 library(gt)
 library(webshot2)
+library(spdep)
+library(ncf)
 
 
 

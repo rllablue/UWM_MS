@@ -30,7 +30,17 @@ spp_name <- "Canada Warbler"
 # Native CRS: WI Transverse Mercator, EPSG:3071
 
 blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
-  rename(atlas_block = BLOCK_ID)
+  rename(
+    atlas_block = BLOCK_ID,
+    priority_block = BLOCK_STAT
+    ) %>%
+  mutate(
+    priority_block = case_when(
+      priority_block %in% c("Regular Block", "Specialty Block") ~ 0,
+      priority_block %in% c("Priority Block") ~ 1,
+      TRUE ~ NA_real_
+    )
+  )
 crs(blocks_all_sf)
 
 blocks_rll_sf <- blocks_all_sf %>%

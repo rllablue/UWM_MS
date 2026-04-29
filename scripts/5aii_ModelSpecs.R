@@ -971,7 +971,7 @@ vif_global_models
 
 
 
-### --- 4: GLOBAL PA MODELS --- ###
+### --- 4: GLOBAL PA MODELS, MODELING --- ###
 
 pa_covar <- c("pa_prop")
 
@@ -1005,11 +1005,178 @@ pa_glm_models <- lapply(names(reference_global_models), function(nm) {
 names(pa_glm_models) <- names(reference_global_models)
 
 
+
+# predicted probabilities
+pa_predictions <- lapply(pa_glm_models, function(model) {
+  predict(model, type = "response")
+})
+
+pa_predictions
+#pa_predictions$RLL_col
+#pa_predictions$RLL_ext
+
+
+# residuals
+pa_residuals <- lapply(pa_glm_models, function(model) {
+  residuals(model, type = "pearson")
+})
+
+pa_residuals
+#pa_residuals$RLL_col
+#pa_residuals$RLL_ext
+
+
 pa_glm_summaries <- lapply(pa_glm_models, summary)
 pa_glm_summaries
 
 vif_pa_models <- lapply(pa_glm_models, car::vif)
 vif_pa_models
+
+
+
+
+### GLOBAL MODEL ASSESSMENT ##
+
+# AUC
+
+library(pROC)
+
+pa_auc <- lapply(names(pa_glm_models), function(nm) {
+  
+  model <- pa_glm_models[[nm]]
+  
+  # extract observed response from model frame
+  observed <- model$model[[1]]
+  
+  # predicted probabilities
+  predicted <- predict(model, type = "response")
+  
+  # calculate AUC
+  auc_value <- pROC::auc(observed, predicted)
+  
+  data.frame(
+    model = nm,
+    AUC = as.numeric(auc_value)
+  )
+})
+
+pa_auc <- do.call(rbind, pa_auc)
+pa_auc
+
+
+
+# Pseudo-R2
+library(pscl)
+
+pa_r2 <- lapply(names(pa_glm_models), function(nm) {
+  
+  model <- pa_glm_models[[nm]]
+  
+  r2_vals <- pscl::pR2(model)
+  
+  data.frame(
+    model = nm,
+    McFadden_R2 = r2_vals["McFadden"]
+  )
+})
+
+pa_r2 <- do.call(rbind, pa_r2)
+pa_r2
+
+
+# Combine
+pa_model_metrics <- merge(
+  pa_auc,
+  pa_r2,
+  by = "model"
+)
+
+pa_model_metrics
+
+
+
+## VISUAL ROC curves
+
+
+roc_col <- roc(
+  response = pa_glm_models$RLL_col$model[[1]],
+  predictor = pa_predictions$RLL_col
+)
+
+roc_ext <- roc(
+  response = pa_glm_models$RLL_ext$model[[1]],
+  predictor = pa_predictions$RLL_ext
+)
+
+plot(roc_col)
+plot(roc_ext, add = TRUE)
+legend("bottomright",
+       legend = c("RLL_col", "RLL_ext"))
+
+
+
+
+### ROC objects ###
+### Convert ROC output to data frames ###
+
+roc_col_df <- data.frame(
+  FPR = 1 - roc_col$specificities,
+  TPR = roc_col$sensitivities,
+  Model = "Colonization"
+)
+
+roc_ext_df <- data.frame(
+  FPR = 1 - roc_ext$specificities,
+  TPR = roc_ext$sensitivities,
+  Model = "Extinction"
+)
+
+roc_df <- rbind(roc_col_df, roc_ext_df)
+
+### Pull AUC values for legend labels ###
+
+auc_col <- round(as.numeric(auc(roc_col)), 3)
+auc_ext <- round(as.numeric(auc(roc_ext)), 3)
+
+### ggplot ROC ###
+
+ggplot(roc_df, aes(x = FPR, y = TPR, color = Model)) +
+  
+  geom_line(linewidth = 1.2) +
+  
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = "dashed",
+    color = "grey50"
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Colonization" = "#2C7BB6",
+      "Extinction"   = "#D7191C"
+    ),
+    labels = c(
+      paste0("Colonization (AUC = ", auc_col, ")"),
+      paste0("Extirpation (AUC = ", auc_ext, ")")
+    )
+  ) +
+  
+  labs(
+    title = "ROC Curves for PA Logistic GLMs",
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)",
+    color = NULL
+  ) +
+  
+  coord_equal() +
+  
+  theme_minimal(base_size = 13) +
+  
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
 
 
 

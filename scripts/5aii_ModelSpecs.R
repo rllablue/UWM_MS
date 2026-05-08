@@ -41,6 +41,7 @@ pacman::p_load(
   ggplot2,
   viridis,
   gt,
+  sf,
   webshot2
   
 )
@@ -192,8 +193,8 @@ rll_valid_counts <- mod_data_all %>%
 
 
 ## SPECIES MODELED ##
-spp_alpha <- "CAWA"
-spp_name <- "Canada Warbler"
+spp_alpha <- "RCKI"
+spp_name <- "Ruby-crowned Kinglet"
 
 
 # Helper: Build filtered modeling dfs
@@ -462,7 +463,7 @@ guild_key
 land_covs_reduced <- c()
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c()
+climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff")
 
 numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
@@ -523,7 +524,11 @@ names(vif_results) <- names(mod_dfs_all)
 
 # Output Covariates
 guild_key
-land_covs_reduced <- c()
+land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
+                       "forest_mixed_base", "forest_evergreen_base", 
+                       "wetlands_woody_base", "wetlands_herb_base",
+                       
+                       "forest_total_diff", "wetlands_total_diff")
 
 climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
 climate_covs_reduced <- c()
@@ -1029,8 +1034,64 @@ pa_residuals
 pa_glm_summaries <- lapply(pa_glm_models, summary)
 pa_glm_summaries
 
+
+
+
+# Stats Checks
+GetCorrelatedPairs <- function(model,
+                               cutoff = 0.7,
+                               digits = 2) {
+  
+  # model matrix
+  mm <- model.matrix(model)
+  
+  # remove intercept
+  mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
+  
+  # correlation matrix
+  cor_mat <- cor(mm, use = "complete.obs")
+  
+  # convert to long format
+  cor_df <- as.data.frame(as.table(cor_mat))
+  
+  colnames(cor_df) <- c("var1", "var2", "correlation")
+  
+  # remove duplicates + self correlations
+  cor_df <- cor_df %>%
+    filter(var1 != var2) %>%
+    rowwise() %>%
+    mutate(pair = paste(sort(c(var1, var2)), collapse = "__")) %>%
+    ungroup() %>%
+    distinct(pair, .keep_all = TRUE) %>%
+    dplyr::select(-pair)
+  
+  # absolute correlation filter
+  cor_df <- cor_df %>%
+    filter(abs(correlation) >= cutoff) %>%
+    mutate(correlation = round(correlation, digits)) %>%
+    arrange(desc(abs(correlation)))
+  
+  cor_df
+}
+
+
+# Apply to all PA models
+pa_model_cor_pairs <- lapply(
+  pa_glm_models,
+  GetCorrelatedPairs,
+  cutoff = 0.7
+)
+
+pa_model_cor_pairs
+
+
+
 vif_pa_models <- lapply(pa_glm_models, car::vif)
 vif_pa_models
+
+
+
+
 
 
 
@@ -1038,9 +1099,6 @@ vif_pa_models
 ### GLOBAL MODEL ASSESSMENT ##
 
 # AUC
-
-library(pROC)
-
 pa_auc <- lapply(names(pa_glm_models), function(nm) {
   
   model <- pa_glm_models[[nm]]
@@ -1066,8 +1124,6 @@ pa_auc
 
 
 # Pseudo-R2
-library(pscl)
-
 pa_r2 <- lapply(names(pa_glm_models), function(nm) {
   
   model <- pa_glm_models[[nm]]
@@ -1096,8 +1152,6 @@ pa_model_metrics
 
 
 ## VISUAL ROC curves
-
-
 roc_col <- roc(
   response = pa_glm_models$RLL_col$model[[1]],
   predictor = pa_predictions$RLL_col

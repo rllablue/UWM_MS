@@ -38,99 +38,369 @@ library(webshot2)
 
 
 
+## DATA ##
+### Join raw projected lat, lon to data
 
-########### WIP 4/26/26
-
-
-### MORAN'S I ###
-pa_moran <- lapply(names(pa_glm_models), function(nm) {
+data_dir_coords <- lapply(names(data_dir), function(nm) {
   
   dat <- data_dir[[nm]]
-  res <- pa_residuals[[nm]]
   
-  coords <- cbind(dat$lon, dat$lat)
+  dat <- dat %>%
+    dplyr::left_join(
+      covars_raw_rll %>%
+        dplyr::select(atlas_block, lon_raw = lon, lat_raw = lat),
+      by = "atlas_block"
+    ) %>%
+    dplyr::mutate(
+      x_km = as.numeric(lon_raw) / 1000,
+      y_km = as.numeric(lat_raw) / 1000
+    ) %>%
+    dplyr::filter(!is.na(x_km), !is.na(y_km))
   
-  # k-nearest neighbors (k = 8 is a common default for grids)
-  knn <- spdep::knearneigh(coords, k = 8)
-  nb  <- spdep::knn2nb(knn)
-  lw  <- spdep::nb2listw(nb, style = "W")
-  
-  test <- spdep::moran.test(res, lw)
-  
-  data.frame(
-    model = nm,
-    Moran_I = as.numeric(test$estimate[1]),
-    p_value = test$p.value
-  )
+  dat
 })
 
-pa_moran <- do.call(rbind, pa_moran)
-pa_moran
+names(data_dir_coords) <- names(data_dir)
 
 
 
-### CORRELOGRAM
+
+
+
+### --- GLOBAL AUTOCORRELATION --- ###
+# --> Is there spatial structure in residuals?
+
+### MORAN'S I ###
+### + kNN sensitivity analysis
+
+k_seq <- c(3, 5, 8, 10, 15, 20, 30)
+
+pa_moran_k <- lapply(names(pa_glm_models), function(nm) {
+  
+  dat <- data_dir_coords[[nm]]
+  res <- pa_residuals[[nm]]
+  coords <- cbind(dat$x_km, dat$y_km)
+  
+  out <- lapply(k_seq, function(k_val) {
+    
+    nb <- knn2nb(knearneigh(coords, k = k_val))
+    lw <- nb2listw(nb, style = "W")
+    
+    test <- moran.test(res, lw)
+    
+    data.frame(
+      model = nm,
+      k = k_val,
+      Moran_I = unname(test$estimate[1]),
+      p_value = test$p.value
+    )
+  })
+  
+  bind_rows(out)
+})
+
+pa_moran_k <- bind_rows(pa_moran_k)
+
+
+
+
+# visualize neighbor-definition sensitivity
+ggplot(pa_moran_k, aes(x = k, y = Moran_I, color = model)) +
+  
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  
+  scale_x_continuous(breaks = k_seq) +
+  
+  scale_color_manual(
+    values = c(
+      "RLL_col" = "turquoise",
+      "RLL_ext" = "tomato"
+    )
+  ) +
+  
+  labs(
+    title = "Moran's I Sensitivity to Neighborhood Size (kNN)",
+    x = "k (number of neighbors)",
+    y = "Moran's I"
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 20, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+
+
+
+
+### CORRELOGRAM: BINNED ###
 pa_correlog <- lapply(names(pa_glm_models), function(nm) {
   
-  dat <- data_dir[[nm]]
+  dat <- data_dir_coords[[nm]]
   res <- pa_residuals[[nm]]
   
-  correlog(
-    x = dat$lon,
-    y = dat$lat,
+  ncf::correlog(
+    x = dat$x_km,
+    y = dat$y_km,
     z = res,
-    increment = 0.5,  # adjust if needed for your grid spacing
-    resamp = 0
+    increment = 50,
+    resamp = 999
   )
 })
 
 names(pa_correlog) <- names(pa_glm_models)
 
 
-correlog_df <- do.call(rbind, lapply(names(pa_correlog), function(nm) {
+
+correlog_df <- bind_rows(lapply(names(pa_correlog), function(nm) {
   
   obj <- pa_correlog[[nm]]
   
   data.frame(
     model    = nm,
     distance = obj$mean.of.class,
-    moran_I  = obj$correlation
+    moran_I  = obj$correlation,
+    p_value  = obj$p,
+    n_pairs  = obj$n
   )
 }))
 
 
 
-
-ggplot(correlog_df, aes(x = distance, y = moran_I, color = model)) +
+ggplot(correlog_df, 
+       aes(x = distance, y = moran_I, color = model)) +
   
   geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
   
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
   
   scale_color_manual(
     values = c(
-      "RLL_col" = "#2C7BB6",
-      "RLL_ext" = "#D7191C"
+      "RLL_col" = "turquoise",
+      "RLL_ext" = "tomato"
     ),
     labels = c(
       "Colonization",
-      "Extinction"
+      "Extirpation"
     )
   ) +
   
   labs(
-    title = "Spatial Correlogram of PA Model Residuals",
-    x = "Distance",
-    y = "Moran's I (by distance class)",
-    color = NULLe
+    title = "Binned Spatial Correlogram",
+    x = "Distance (km)",
+    y = "Moran's I",
+    color = NULL
   ) +
   
   theme_minimal(base_size = 13) +
-  
   theme(
     legend.position = "bottom",
+    axis.text.x = element_text(angle = 20, hjust = 1),
     plot.title = element_text(face = "bold")
   )
+
+
+
+
+
+
+
+### CORRELOG: SPLINE ###
+pa_spline <- lapply(names(pa_glm_models), function(nm) {
+  
+  dat <- data_dir_coords[[nm]]
+  res <- pa_residuals[[nm]]
+  
+  ncf::spline.correlog(
+    x = dat$x_km,
+    y = dat$y_km,
+    z = res,
+    resamp = 999
+  )
+})
+
+names(pa_spline) <- names(pa_glm_models)
+
+
+
+spline_df <- bind_rows(lapply(names(pa_spline), function(nm) {
+  
+  obj <- pa_spline[[nm]]
+  
+  # extract safely as vectors
+  dist_vals  <- as.numeric(obj$real$predicted$x)
+  corr_vals  <- as.numeric(obj$real$predicted$y)
+  lower_vals <- as.numeric(obj$boot$boot.summary$predicted$y["0.025", ])
+  upper_vals <- as.numeric(obj$boot$boot.summary$predicted$y["0.975", ])
+  
+  data.frame(
+    model = nm,
+    distance = dist_vals,
+    corr = corr_vals,
+    lower = lower_vals,
+    upper = upper_vals
+  )
+}))
+
+
+# OPT 1: half-decay distance
+### what is distance where corr is mostly gone?
+### half-decay: distance where corr drops to half its max
+half_decay_range <- spline_df %>%
+  group_by(model) %>%
+  summarise(
+    peak_I = max(corr, na.rm = TRUE),
+    target = peak_I / 2,
+    
+    range_km = distance[which.min(abs(corr - target))]
+  )
+
+
+  
+# OPT 2: Effective spatial independence range
+### first distance where CI overlaps 0 for the final time
+zero_range <- spline_df %>%
+  group_by(model) %>%
+  arrange(distance) %>%
+  mutate(
+    non_sig = (lower <= 0 & upper >= 0),
+    was_sig = !non_sig,
+    transition = was_sig & lead(non_sig)
+  ) %>%
+  summarise(
+    range_km = ifelse(any(transition),
+                      distance[which(transition)[1]],
+                      NA)
+  )
+
+
+# Visualization
+ggplot(spline_df, aes(x = distance, y = corr, color = model)) +
+  
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper, fill = model),
+    alpha = 0.2,
+    color = NA
+  ) +
+  
+  geom_line(linewidth = 1.2) +
+  
+  geom_vline(
+    data = half_decay_range,
+    aes(xintercept = range_km, color = "black"),
+    linetype = "dotted",
+    linewidth = 1
+  ) +
+  
+  geom_vline(
+    data = zero_range,
+    aes(xintercept = range_km, color = "green"),
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  
+  scale_color_manual(values = c(
+    "RLL_col" = "turquoise",
+    "RLL_ext" = "tomato"
+  )) +
+  
+  scale_fill_manual(values = c(
+    "RLL_col" = "turquoise",
+    "RLL_ext" = "tomato"
+  )) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 20, hjust = 1),
+    plot.title = element_text(face = "bold")
+  ) +
+  
+  labs(
+    title = "Spline Spatial Correlogram",
+    x = "Distance (km)",
+    y = "Correlation"
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 20, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+# Zoomed ggplot
+ggplot(spline_df, aes(x = distance, y = corr, color = model)) +
+  
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper, fill = model),
+    alpha = 0.2,
+    color = NA
+  ) +
+  
+  geom_line(linewidth = 1.2) +
+  
+  geom_vline(
+    data = half_decay_range,
+    aes(xintercept = range_km),
+    linetype = "dotted",
+    linewidth = 1,
+    color = "orchid"
+  ) +
+  
+  geom_vline(
+    data = zero_range,
+    aes(xintercept = range_km),
+    linetype = "dashed",
+    linewidth = 1,
+    color = "springgreen"
+  ) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  
+  scale_color_manual(values = c(
+    "RLL_col" = "turquoise",
+    "RLL_ext" = "tomato"
+  )) +
+  
+  scale_fill_manual(values = c(
+    "RLL_col" = "turquoise",
+    "RLL_ext" = "tomato"
+  )) +
+  
+  coord_cartesian(xlim = c(0, 200)) +
+  
+  labs(
+    title = "Spline Spatial Correlogram (0–200 km)",
+    x = "Distance (km)",
+    y = "Correlation"
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 20, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+
+
+
+
+
 
 
 
@@ -223,8 +493,15 @@ ggplot(lisa_df, aes(x = lon, y = lat, fill = cluster)) +
 
 
 
-### AUTOCOVARIATE MODEL TERM ###
 
+
+
+
+
+
+
+
+### AUTOCOVARIATE MODEL TERM ###
 
 # use the same k / neighborhood logic as your Moran + LISA work
 # here we use inverse-distance style autocovariance via autocov_dist()
@@ -274,12 +551,94 @@ pa_glm_models_auto <- lapply(names(pa_autocov), function(nm) {
 })
 
 names(pa_glm_models_auto) <- names(pa_autocov)
+summary(pa_glm_models_auto)
 
 
 
 
 
-# Compare to non-spatial model
+### STATISTICAL FILTERS — PA MODEL + SPATIAL AUTOCOVARIATE ###
+
+### predictor set used in final PA + SAC model
+### (base predictors from selected PA model + pa_prop + autocov_pa)
+
+GetPAAutoCovars <- function(model_obj) {
+  
+  # pull predictor names directly from fitted glm
+  vars <- names(coef(model_obj))
+  
+  # remove intercept
+  vars <- vars[vars != "(Intercept)"]
+  
+  vars
+}
+
+
+### VISUALIZE CORRELATIONS INCLUDING AUTOCOVARIATE
+
+pa_auto_corr_results <- lapply(names(pa_glm_models_auto), function(nm) {
+  
+  dat <- pa_autocov[[nm]]
+  
+  covs_use <- GetPAAutoCovars(pa_glm_models_auto[[nm]])
+  
+  VisualizeCorrelations(
+    data  = dat,
+    covs  = covs_use,
+    label = paste(nm, "+ autocov")
+  )
+})
+
+names(pa_auto_corr_results) <- names(pa_glm_models_auto)
+
+
+### NUMERICALLY IDENTIFY HIGH CORRELATIONS
+### especially important for checking autocov_pa inflation
+
+pa_auto_highcorrs <- lapply(names(pa_glm_models_auto), function(nm) {
+  
+  dat <- pa_autocov[[nm]]
+  
+  covs_use <- GetPAAutoCovars(pa_glm_models_auto[[nm]])
+  
+  cat("\n============================\n")
+  cat("High correlations for:", nm, "\n")
+  cat("============================\n")
+  
+  GetHighCorrs(
+    data = dat,
+    covs = covs_use,
+    threshold = 0.7
+  )
+})
+
+names(pa_auto_highcorrs) <- names(pa_glm_models_auto)
+
+
+### VIF CHECK INCLUDING AUTOCOVARIATE
+
+vif_pa_models_auto <- lapply(pa_glm_models_auto, car::vif)
+
+vif_pa_models_auto
+
+
+### Example:
+vif_pa_models_auto[["RLL_col"]]
+vif_pa_models_auto[["RLL_ext"]]
+
+
+
+
+
+
+
+
+
+
+
+
+# MODEL COMPARISON #
+### Check performance of spatial vs non-spatial term model
 AIC(pa_glm_models[["RLL_col"]])
 AIC(pa_glm_models_auto[["RLL_col"]])
 
@@ -309,9 +668,6 @@ moran.test(
 
 
 # AUC
-
-library(pROC)
-
 pa_auc_auto <- lapply(names(pa_glm_models_auto), function(nm) {
   
   model <- pa_glm_models_auto[[nm]]
@@ -337,8 +693,6 @@ pa_auc_auto
 
 
 # Pseudo-R2
-library(pscl)
-
 pa_r2_auto <- lapply(names(pa_glm_models_auto), function(nm) {
   
   model <- pa_glm_models_auto[[nm]]
@@ -369,107 +723,3 @@ pa_model_metrics_auto
 
 
 
-
-
-
-
-
-
-# Models per response x block set
-global_glm_models
-# $RLL_col, $RLL_ext, $DNR_col, $DNR_ext
-
-
-
-# Atlas blocks geometry
-blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% # load full block map
-  rename(atlas_block = BLOCK_ID)
-crs(blocks_all_sf)
-
-blocks_background <- blocks_all_sf %>%
-  filter(atlas_block %in% union(blocks_rll, blocks_dnr))
-
-
-
-
-### MORAN'S I ###
-
-RunMoranResiduals <- function(model,
-                              model_df,
-                              blocks_sf,
-                              blocks_rll,
-                              blocks_dnr,
-                              model_name,
-                              k = 4) {
-  
-  # Determine pool
-  pool_blocks <- if (grepl("RLL", model_name)) {
-    blocks_rll
-  } else {
-    blocks_dnr
-  }
-  
-  background_sf <- blocks_sf %>%
-    filter(atlas_block %in% pool_blocks)
-  
-  sf_obj <- model_df %>%
-    left_join(
-      blocks_sf %>% dplyr::select(atlas_block, geometry),
-      by = "atlas_block"
-    ) %>%
-    st_as_sf() %>%
-    arrange(atlas_block)
-  
-  sf_obj$resid <- residuals(model, type = "pearson")
-  
-  coords <- st_coordinates(st_centroid(sf_obj))
-  nb <- knn2nb(knearneigh(coords, k = k))
-  lw <- nb2listw(nb, style = "W")
-  
-  moran_res <- moran.test(sf_obj$resid, lw)
-  
-  # Labels
-  type_label <- ifelse(grepl("col", model_name),
-                       "Colonization", "Extinction")
-  set_label  <- ifelse(grepl("RLL", model_name),
-                       "RLL", "DNR")
-  
-  cat("\n============================\n")
-  cat(set_label, "-", type_label, "\n")
-  print(moran_res)
-  
-  # Moran plot
-  moran.plot(sf_obj$resid, lw,
-             main = paste(set_label, "-", type_label))
-  
-  # Residual map
-  print(
-    ggplot() +
-      geom_sf(data = background_sf,
-              fill = NA,
-              color = "grey70") +
-      geom_sf(data = sf_obj,
-              aes(fill = resid)) +
-      scale_fill_gradient2(midpoint = 0) +
-      ggtitle(paste(set_label, "-", type_label, "Residuals")) +
-      theme_minimal()
-  )
-  
-  return(moran_res)
-}
-
-
-moran_results <- lapply(names(global_glm_models), function(nm) {
-  
-  RunMoranResiduals(
-    model        = global_glm_models[[nm]],
-    model_df     = data_dir[[nm]],
-    blocks_sf    = blocks_all_sf,
-    blocks_rll   = blocks_rll,
-    blocks_dnr   = blocks_dnr,
-    model_name   = nm
-  )
-})
-
-names(moran_results) <- names(global_glm_models)
-moran_results

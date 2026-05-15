@@ -186,6 +186,24 @@ wibba_covars_raw <- wibba_covars_raw %>%
 # Longitude, Latitude centroids from atlas blocks as climate proxies
 # Proxies to be used in SR residual regression as climate/geographic gradient proxy
 
+# New 
+block_centroids_df <- blocks_all_sf %>%
+  st_centroid() %>%
+  mutate(
+    lon = st_coordinates(.)[,1],
+    lat = st_coordinates(.)[,2],
+    x_km = lon / 1000,
+    y_km = lat / 1000,
+    x_km_z = as.numeric(scale(x_km)),
+    y_km_z = as.numeric(scale(y_km))
+  ) %>%
+  st_drop_geometry() %>%
+  dplyr::select(atlas_block, lon, lat, x_km, y_km, x_km_z, y_km_z)
+
+
+
+
+# Old 
 wibba_covars_raw <- wibba_covars_raw %>%
   left_join(
     blocks_comp_shp_5070 %>%

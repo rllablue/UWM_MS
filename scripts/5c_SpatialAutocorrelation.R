@@ -28,7 +28,9 @@ library(MuMIn)
 options(na.action = "na.fail")
 library(arm)
 library(ncf)
+library(DHARMa)
 library(spdep)
+library(gstat)
 
 # Visualization
 library(ggplot2)
@@ -38,7 +40,9 @@ library(webshot2)
 
 
 
-## DATA ##
+############################################################## NEW W/ DHAARMa, SEMIVARIOGRAMS
+
+### DATA ###
 ### Join raw projected lat, lon to data
 
 data_dir_coords <- lapply(names(data_dir), function(nm) {
@@ -63,8 +67,260 @@ data_dir_coords <- lapply(names(data_dir), function(nm) {
 names(data_dir_coords) <- names(data_dir)
 
 
+### Coords df
+block_centroids_df <- covars_raw_rll %>%
+  dplyr::select(atlas_block, lon, lat) %>%
+  distinct() %>%
+  mutate(
+    x_km = lon / 1000,
+    y_km = lat / 1000
+  )
 
 
+block_centroids <- blocks_all_sf %>%
+  st_centroid() %>%
+  mutate(
+    lon = st_coordinates(.)[,1],
+    lat = st_coordinates(.)[,2],
+    x_km = lon / 1000,
+    y_km = lat / 1000
+  ) %>%
+  st_drop_geometry() %>%
+  dplyr::select(atlas_block, lon, lat, x_km, y_km)
+
+
+
+
+
+
+### SPATIAL AUTOCORRELATION ###
+
+# Goals:
+# 1) Fit null + full PA models
+# 2) Extract DHARMa standardized quantile residuals
+# 3) Build semivariograms from DHARMa residuals
+
+
+### --- TRUE NULL, PA NULL, FULL MODEL COMPARISON --- ###
+
+# Helper: extract response variable name
+GetResponseName <- function(model_name) {
+  strsplit(model_name, "_")[[1]][2]
+}
+
+
+
+### TRUE NULL (response ~ 1)
+pa_true_null_models <- lapply(names(pa_glm_models), function(nm) {
+  
+  response <- GetResponseName(nm)
+  
+  glm(
+    as.formula(paste(response, "~ 1")),
+    data = data_dir[[nm]],
+    family = binomial
+  )
+})
+
+names(pa_true_null_models) <- names(pa_glm_models)
+
+
+
+### PA-ONLY NULL (response ~ pa_prop)
+pa_paonly_models <- lapply(names(pa_glm_models), function(nm) {
+  
+  response <- GetResponseName(nm)
+  
+  glm(
+    as.formula(paste(response, "~ pa_prop")),
+    data = data_dir[[nm]],
+    family = binomial
+  )
+})
+
+names(pa_paonly_models) <- names(pa_glm_models)
+
+
+
+### FULL MODEL (response ~ pa_prop + env, etc. covariates)
+pa_full_models <- pa_glm_models
+
+
+
+
+
+### EXTRACT, MAP DHARMa RESIDUALS ###
+model_sets <- list(
+  true_null = pa_true_null_models,
+  pa_null   = pa_paonly_models,
+  full      = pa_full_models
+)
+
+
+dharma_residuals <- lapply(names(model_sets), function(set_name) {
+  
+  models <- model_sets[[set_name]]
+  
+  out <- lapply(names(models), function(nm) {
+    
+    sim <- simulateResiduals(
+      fittedModel = models[[nm]],
+      plot = FALSE
+    )
+    
+    data.frame(
+      atlas_block = data_dir_coords[[nm]]$atlas_block,
+      x_km = data_dir_coords[[nm]]$x_km,
+      y_km = data_dir_coords[[nm]]$y_km,
+      residual = sim$scaledResiduals,
+      species_model = nm,
+      model_type = set_name
+    )
+  })
+  
+  bind_rows(out)
+})
+
+dharma_residuals <- bind_rows(dharma_residuals)
+
+
+
+
+
+### SEMIVARIOGRTAMS ###
+
+semivar_df <- dharma_residuals %>%
+  
+  group_by(species_model, model_type) %>%
+  
+  group_modify(~ {
+    
+    dat <- .x
+    
+    coordinates <- dat[, c("x_km", "y_km")]
+    
+    gdf <- sf::st_as_sf(
+      dat,
+      coords = c("x_km", "y_km"),
+      crs = 3071
+    )
+    
+    vgm_obj <- gstat::variogram(
+      residual ~ 1,
+      locations = gdf,
+      cutoff = 300,
+      width = 25
+    )
+    
+    as.data.frame(vgm_obj)
+    
+  }) %>%
+  
+  ungroup()
+
+
+
+### PLOT ###
+
+# Tidy
+
+semivar_df <- semivar_df %>%
+  
+  mutate(
+    
+    process = case_when(
+      grepl("_col$", species_model) ~ "Colonization",
+      grepl("_ext$", species_model) ~ "Extirpation"
+    ),
+    
+    model_type = factor(
+      model_type,
+      levels = c("true_null", "pa_null", "full"),
+      labels = c(
+        "True null",
+        "PA-only null",
+        "Full model"
+      )
+    )
+  )
+
+
+
+
+
+
+# Plot
+
+ggplot(
+  semivar_df,
+  aes(x = dist, y = gamma, color = model_type)
+) +
+  
+  geom_line(linewidth = 1.2) +
+  
+  geom_point(size = 2) +
+  
+  facet_wrap(~process) +
+  
+  scale_color_manual(
+    values = c(
+      "True null" = "grey40",
+      "PA-only null" = "orange",
+      "Full model" = "turquoise4"
+    )
+  ) +
+  
+  labs(
+    title = "Residual Spatial Structure Across Model Types",
+    x = "Distance (km)",
+    y = "Semivariance",
+    color = NULL
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+# Summarize
+
+
+semivar_summary <- semivar_df %>%
+  
+  group_by(process, model_type) %>%
+  
+  summarise(
+    mean_semivariance = mean(gamma, na.rm = TRUE),
+    max_semivariance = max(gamma, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+semivar_summary
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## DATA ####################################################### OLD WIP W/ PEARSON'S RES
 
 
 ### --- GLOBAL AUTOCORRELATION --- ###

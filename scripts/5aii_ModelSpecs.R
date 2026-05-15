@@ -34,6 +34,7 @@ pacman::p_load(
   MuMIn,
   arm,
   ncf,
+  DHARMa,
   psych, 
   usdm,
   
@@ -63,14 +64,6 @@ spp_zf_rll <- spp_zf_rll %>%
   left_join(spp_guilds, by = "common_name")
 
 
-# Covariate Data #
-covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
-covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
-  mutate(across(
-    .cols = -atlas_block,
-    .fns = ~ as.numeric(scale(.))
-  ))
-
 
 # Atlas Block Data #
 blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
@@ -80,11 +73,27 @@ blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.s
   ) %>%
   mutate(
     priority_block = case_when(
-      priority_block %in% c("Regular Block", "Specialty Block") ~ 0,
-      priority_block %in% c("Priority Block") ~ 1,
-      TRUE ~ NA_real_
+      priority_block %in% c("Regular Block", "Specialty Block") ~ 0L,
+      priority_block %in% c("Priority Block") ~ 1L,
+      TRUE ~ NA_integer_
     )
   )
+
+
+block_centroids_df <- blocks_all_sf %>%
+  st_centroid() %>%
+  mutate(
+    lon = st_coordinates(.)[,1],
+    lat = st_coordinates(.)[,2],
+    lon_z = as.numeric(scale(lon)),
+    lat_z = as.numeric(scale(lat)),
+    x_km = lon / 1000,
+    y_km = lat / 1000,
+    x_km_z = as.numeric(scale(x_km)),
+    y_km_z = as.numeric(scale(y_km))
+  ) %>%
+  st_drop_geometry() %>%
+  dplyr::select(atlas_block, lon, lat, lon_z, lat_z, x_km, y_km, x_km_z, y_km_z)
 
 
 wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
@@ -95,18 +104,38 @@ blocks_rll_sf <- blocks_all_sf %>%
 
 
 
+# Covariate Data #
+covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
 
-# FULL MODELING DF #
-# Coalesce data sources, incl. z-scales values
-mod_data_all <- spp_zf_rll %>%
-  left_join(covars_z_rll, by = "atlas_block") %>%
-  left_join(
-    blocks_rll_sf %>%
-      st_drop_geometry() %>%
-      dplyr::select(atlas_block, priority_block) %>%
-      mutate(priority_block = as.integer(priority_block)),
-    by = "atlas_block"
-  )
+#covars_raw_rll <- covars_raw_rll %>%
+#  left_join(
+#    block_centroids_df %>%
+#      dplyr::select(atlas_block, lat, lon, x_km, y_km),
+#    by = "atlas_block"
+#    )
+#write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
+
+
+covars_z_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
+
+#covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
+#  mutate(across(
+#    .cols = -atlas_block,
+#    .fns = ~ as.numeric(scale(.))
+#  ))
+#write.csv(covars_z_rll, "data/summaries/covars_z_rll.csv", row.names = FALSE)
+
+
+
+# Consolidated Modeling Data #
+#mod_data_all <- spp_zf_rll %>%
+#  left_join(covars_z_rll, by = "atlas_block") %>%
+#  left_join(
+#    blocks_rll_sf %>%
+#      st_drop_geometry() %>%
+#      dplyr::select(atlas_block, priority_block),
+#    by = "atlas_block"
+#  )
 #write.csv(mod_data_all, "outputs/data/mod_data_all.csv", row.names = FALSE)
 
 
@@ -193,8 +222,8 @@ rll_valid_counts <- mod_data_all %>%
 
 
 ## SPECIES MODELED ##
-spp_alpha <- "RCKI"
-spp_name <- "Ruby-crowned Kinglet"
+spp_alpha <- "RBWO"
+spp_name <- "Red-bellied Woodpecker"
 
 
 # Helper: Build filtered modeling dfs

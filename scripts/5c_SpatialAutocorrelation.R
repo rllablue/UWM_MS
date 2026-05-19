@@ -31,12 +31,14 @@ library(ncf)
 library(DHARMa)
 library(spdep)
 library(gstat)
+library(mgcv)
 
 # Visualization
 library(ggplot2)
 library(viridis)
 library(gt)
 library(webshot2)
+library(mgcViz)
 
 
 
@@ -92,8 +94,7 @@ block_centroids <- blocks_all_sf %>%
 
 
 
-
-### SPATIAL AUTOCORRELATION ###
+### --- SPATIAL AUTOCORRELATION --- ###
 
 # Goals:
 # 1) Fit null + full PA models
@@ -101,7 +102,7 @@ block_centroids <- blocks_all_sf %>%
 # 3) Build semivariograms from DHARMa residuals
 
 
-### --- TRUE NULL, PA NULL, FULL MODEL COMPARISON --- ###
+### TRUE NULL, PA NULL, FULL MODEL COMPARISON ###
 
 # Helper: extract response variable name
 GetResponseName <- function(model_name) {
@@ -150,6 +151,8 @@ pa_full_models <- pa_glm_models
 
 
 ### EXTRACT, MAP DHARMa RESIDUALS ###
+set.seed(123)
+
 model_sets <- list(
   true_null = pa_true_null_models,
   pa_null   = pa_paonly_models,
@@ -223,7 +226,6 @@ semivar_df <- dharma_residuals %>%
 ### PLOT ###
 
 # Tidy
-
 semivar_df <- semivar_df %>%
   
   mutate(
@@ -246,11 +248,7 @@ semivar_df <- semivar_df %>%
 
 
 
-
-
-
 # Plot
-
 ggplot(
   semivar_df,
   aes(x = dist, y = gamma, color = model_type)
@@ -288,7 +286,6 @@ ggplot(
 
 # Summarize
 
-
 semivar_summary <- semivar_df %>%
   
   group_by(process, model_type) %>%
@@ -302,6 +299,218 @@ semivar_summary <- semivar_df %>%
 semivar_summary
 
 
+################################################################################
+################# SMOOTH LATENT SPATIAL PROCESS ################################
+
+
+### Fit SAC-smoothing GAM and compare fit, residuals with GLM
+
+pa_full_models <- pa_glm_models
+
+
+# Fit GAMs
+spatial_gam_models <- lapply(names(pa_full_models), function(nm) {
+  
+  # Original GLM
+  glm_mod <- pa_full_models[[nm]]
+  
+  # Original formula text
+  base_formula <- formula(glm_mod)
+  
+  # Add spatial smooth
+  gam_formula <- update(
+    base_formula,
+    . ~ . + s(x_km, y_km, k = 30) # k is flexible, controls "wiggle"
+  )
+  
+  gam(
+    formula = gam_formula,
+    data    = data_dir_coords[[nm]],
+    family  = binomial(link = "logit"),
+    method  = "REML"
+  )
+})
+
+names(spatial_gam_models) <- names(pa_full_models)
+
+
+spatial_gam_summaries <- lapply(
+  spatial_gam_models,
+  summary
+)
+
+spatial_gam_summaries
+
+
+
+### Model Comparison
+model_comparison <- lapply(names(pa_full_models), function(nm) {
+  
+  glm_mod <- pa_full_models[[nm]]
+  gam_mod <- spatial_gam_models[[nm]]
+  
+  data.frame(
+    model = c("GLM", "Spatial_GAM"),
+    
+    AIC = c(
+      MuMIn::AICc(glm_mod),
+      MuMIn::AICc(gam_mod)
+    ),
+    
+    deviance_explained = c(
+      1 - glm_mod$deviance / glm_mod$null.deviance,
+      
+      summary(gam_mod)$dev.expl
+    )
+  )
+})
+
+names(model_comparison) <- names(pa_full_models)
+
+model_comparison
+
+
+
+### Residual Comparison
+set.seed(123)
+
+gam_dharma_residuals <- lapply(names(spatial_gam_models), function(nm) {
+  
+  sim <- simulateResiduals(
+    fittedModel = spatial_gam_models[[nm]],
+    plot = FALSE
+  )
+  
+  data.frame(
+    atlas_block = data_dir_coords[[nm]]$atlas_block,
+    x_km = data_dir_coords[[nm]]$x_km,
+    y_km = data_dir_coords[[nm]]$y_km,
+    residual = sim$scaledResiduals,
+    species_model = nm,
+    model_type = "spatial_gam"
+  )
+})
+
+gam_dharma_residuals <- bind_rows(gam_dharma_residuals)
+
+# compare with GLM residuals
+dharma_residuals_compare <- bind_rows(
+  dharma_residuals,
+  gam_dharma_residuals
+)
+
+
+### Semivariograms
+
+semivar_comp_df <- dharma_residuals_compare %>%
+  
+  group_by(species_model, model_type) %>%
+  
+  group_modify(~ {
+    
+    dat <- .x
+    
+    gdf <- sf::st_as_sf(
+      dat,
+      coords = c("x_km", "y_km"),
+      crs = 3071
+    )
+    
+    vgm_obj <- gstat::variogram(
+      residual ~ 1,
+      locations = gdf,
+      cutoff = 300,
+      width = 25
+    )
+    
+    as.data.frame(vgm_obj)
+    
+  }) %>%
+  
+  ungroup()
+
+
+
+### Visualize
+
+### VISUALIZE ###
+
+# Clean labels
+semivar_comp_df <- semivar_comp_df %>%
+  
+  mutate(
+    
+    process = case_when(
+      grepl("_col$", species_model) ~ "Colonization",
+      grepl("_ext$", species_model) ~ "Extirpation"
+    ),
+    
+    model_type_label = case_when(
+      model_type == "true_null"   ~ "True null",
+      model_type == "pa_null"     ~ "PA-only null",
+      model_type == "full"        ~ "Full GLM",
+      model_type == "spatial_gam" ~ "Spatial GAM"
+    )
+  )
+
+
+
+### PLOT ###
+
+ggplot(
+  semivar_comp_df,
+  aes(
+    x = dist,
+    y = gamma,
+    color = model_type_label,
+    group = interaction(model_type_label, species_model)
+  )
+) +
+  
+  geom_line(linewidth = 1.2) +
+  
+  geom_point(size = 2) +
+  
+  facet_wrap(~process) +
+  
+  scale_color_manual(
+    values = c(
+      "True null"    = "grey40",
+      "PA-only null" = "orange",
+      "Full GLM"     = "turquoise4",
+      "Spatial GAM"  = "darkorchid"
+    )
+  ) +
+  
+  labs(
+    title = "Residual Spatial Structure Across Model Types",
+    x = "Distance (km)",
+    y = "Semivariance",
+    color = NULL
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+# Summarize
+
+semivar_comp_summary <- semivar_comp_df %>%
+  
+  group_by(process, model_type_label) %>%
+  
+  summarise(
+    mean_semivariance = mean(gamma, na.rm = TRUE),
+    max_semivariance = max(gamma, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+semivar_comp_summary
 
 
 
@@ -313,6 +522,43 @@ semivar_summary
 
 
 
+
+### SPATIAL AUTOCOVARIATE TERM #################################################
+### Using distance-beased weights
+
+### V1
+
+coords_mat <- as.matrix(
+  coords_df[, c("x_km", "y_km")]
+)
+
+# neighbors within 100 km; set ditance
+nb <- dnearneigh(
+  coords_mat,
+  d1 = 0,
+  d2 = 100
+)
+
+
+distances <- nbdists(nb, coords_mat)
+
+inv_dist <- lapply(
+  distances,
+  function(x) 1 / x
+)
+
+
+inv_dist <- lapply(
+  distances,
+  function(x) 1 / (x + 0.001)
+)
+
+
+dat$auto_cov <- lag.listw(
+  lw,
+  dat[[response]],
+  zero.policy = TRUE
+)
 
 
 
@@ -973,9 +1219,3 @@ pa_model_metrics_auto <- merge(
 )
 
 pa_model_metrics_auto
-
-
-
-
-
-

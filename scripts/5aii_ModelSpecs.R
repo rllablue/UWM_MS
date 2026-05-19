@@ -37,6 +37,7 @@ pacman::p_load(
   DHARMa,
   psych, 
   usdm,
+  glmmTMB,
   
   # Visualization
   ggplot2,
@@ -222,8 +223,8 @@ rll_valid_counts <- mod_data_all %>%
 
 
 ## SPECIES MODELED ##
-spp_alpha <- "RBWO"
-spp_name <- "Red-bellied Woodpecker"
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
 
 
 # Helper: Build filtered modeling dfs
@@ -1449,9 +1450,8 @@ RefitTopModel <- function(model_obj) {
 }
 
 
-
-
 top_pa_gap_models <- lapply(pa_gap_models, RefitTopModel)
+
 
 # Check results
 summary(top_pa_gap_models$RLL_col)
@@ -1506,7 +1506,6 @@ pairs(
 
 
 
-
 # GAP-only Mod
 gap_only_mod <- glm(
   formula = col ~ sr_diff + tmax_38yr + developed_total_base + forest_deciduous_base + forest_mixed_base + 
@@ -1515,9 +1514,6 @@ gap_only_mod <- glm(
   family  = binomial)
 
 summary(gap_only_mod)
-
-
-
 
 
 

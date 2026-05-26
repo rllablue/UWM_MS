@@ -42,6 +42,580 @@ library(mgcViz)
 
 
 
+################################################################################ SPATIAL KERNELS (5.26.26)
+
+######################
+### LOCALIZED SAC ###
+#####################
+
+# Species-specific occupancy structure based on Atlas 1 occupied source populations 
+### within a species-defined dispersal neighborhood.
+
+
+# 1) Join Data
+### Species-specific occupancy data, Atlas block geometry (EPSG:3071)
+
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
+
+spp_blocks_sf <- blocks_rll_sf %>% # join data
+  left_join(
+    mod_data_all %>%
+      filter(alpha_code == spp_alpha) %>%
+      dplyr::select(
+        atlas_block,
+        alpha_code,
+        common_name,
+        det_Atlas1,
+        det_Atlas2,
+        transition_state
+      ),
+    by = "atlas_block"
+  )
+
+
+spp_blocks_sf <- spp_blocks_sf %>% # create centroids
+  mutate(
+    centroid = st_centroid(geom)
+  ) %>%
+  mutate(
+    x = st_coordinates(centroid)[,1],
+    y = st_coordinates(centroid)[,2],
+    x_km = x / 1000,
+    y_km = y / 1000
+  )
+
+
+# 2) Define Dispersal Neighborhood
+
+# 2a) Neighborhood Size
+max_disp_km <- 20 # species-specific max dispersal distance
+max_disp_m  <- max_disp_km * 1000 # EPSG:3071 = meters
+
+sigma_km <- max_disp_km / 2 # for Gaussian kernels
+sigma_m  <- sigma_km * 1000
+
+# 2b) A1 occupancy status (dispersal source)
+a1_occu <- spp_blocks_sf$det_Atlas1 # vector
+
+
+
+# 3) Define Neighborhood Structure
+
+# 3a) Pairwise Centroid Distances
+dist_matrix <- st_distance(
+  spp_blocks_sf$centroid
+)
+
+dist_matrix <- units::drop_units(dist_matrix)
+
+diag(dist_matrix) <- NA_real_ # remove "self-neighbors"
+
+dist_km <- dist_matrix / 1000
+
+
+# 3b) Neighborhood
+# A1-occupied neighbors within dispersal radius
+neighbor_matrix <- (
+  !is.na(dist_matrix) &
+    dist_matrix <= max_disp_m
+) & (
+  a1_occu[col(dist_matrix)] == 1
+)
+
+# All possible neighbors within dispersal radius
+all_neighbor_matrix <- (
+  !is.na(dist_matrix) &
+    dist_matrix <= max_disp_m
+)
+
+
+# 4) Inverse-Distance Weighting (IDW)
+### # w_ij = 1 / d_ij
+idw_matrix <- 1 / dist_km
+
+idw_matrix[!neighbor_matrix] <- 0
+
+
+# 5) Gaussian kernel weighting
+kernel_matrix <- exp( # gaussian weights for A1-occupied neighbors
+  -(dist_matrix^2) / (2 * sigma_m^2)
+)
+
+kernel_matrix[!neighbor_matrix] <- 0
+
+
+kernel_max_matrix <- exp( # maximum gaussian neighborhood influence 
+  -(dist_matrix^2) / (2 * sigma_m^2)
+)
+
+kernel_max_matrix[!all_neighbor_matrix] <- 0
+
+
+
+# 6) Collect SAC Metrics
+
+# M1) Occupied Neighbor Count
+spp_blocks_sf$n_occ_neighbors <- rowSums(
+  neighbor_matrix,
+  na.rm = TRUE
+)
+
+
+# M2) IDW Connectivity (km^-1)
+spp_blocks_sf$idw_connectivity <- rowSums(
+  idw_matrix,
+  na.rm = TRUE
+)
+
+
+# M3) Raw Gaussian Connectivity
+spp_blocks_sf$kernel_connectivity_raw <- rowSums(
+  kernel_matrix,
+  na.rm = TRUE
+)
+
+
+# M4) Standardized Gaussian Connectivity
+kernel_max <- rowSums(
+  kernel_max_matrix,
+  na.rm = TRUE
+)
+
+spp_blocks_sf$kernel_connectivity_std <- ifelse(
+  kernel_max > 0,
+  spp_blocks_sf$kernel_connectivity_raw / kernel_max,
+  0
+)
+
+
+# M5) Distance to Nearest Occupied Source Block (km)
+nearest_occ_dist <- apply(
+  dist_matrix,
+  1,
+  function(x) {
+    
+    vals <- x[
+      !is.na(x) &
+        x <= max_disp_m &
+        a1_occu == 1
+    ]
+    
+    if(length(vals) == 0) {
+      return(NA_real_)
+    } else {
+      return(min(vals))
+    }
+  }
+)
+
+spp_blocks_sf$nearest_occ_dist_km <- (
+  nearest_occ_dist / 1000
+)
+
+
+# M6) Mean Distance to Occupied Source Blocks (km)
+mean_occ_dist <- apply(
+  dist_matrix,
+  1,
+  function(x) {
+    
+    vals <- x[
+      !is.na(x) &
+        x <= max_disp_m &
+        a1_occu == 1
+    ]
+    
+    if(length(vals) == 0) {
+      return(NA_real_)
+    } else {
+      return(mean(vals))
+    }
+  }
+)
+
+spp_blocks_sf$mean_occ_dist_km <- (
+  mean_occ_dist / 1000
+)
+
+
+# M7) Source Availability Indicator
+### Binary: 1 = at least one A1-occupied source block within dispersal radius; 0 = none within radius
+spp_blocks_sf$source_available <- ifelse(
+  spp_blocks_sf$n_occ_neighbors > 0,
+  1,
+  0
+)
+
+
+
+
+# 7) Diagnostic Plots 
+
+# D1) Occupied neighbor count
+### M1: n_occ_neighbors
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = n_occ_neighbors)) +
+  
+  scale_fill_viridis_c() +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Occupied Neighbor Count"
+    ),
+    fill = "Neighbor count"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D2) IDW connectivity
+### M2: idw_connectivity (km^-1)
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = idw_connectivity)) +
+  
+  scale_fill_viridis_c() +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- IDW Connectivity"
+    ),
+    fill = "IDW"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D3) Raw Gaussian connectivity
+### M3: kernel_connectivity_raw
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = kernel_connectivity_raw)) +
+  
+  scale_fill_viridis_c() +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Raw Gaussian Connectivity"
+    ),
+    fill = "Raw kernel"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D4) Standardized Gaussian connectivity (approx. 0-1)
+### M4: kernel_connectivity_std
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = kernel_connectivity_std)) +
+  
+  scale_fill_viridis_c(
+    limits = c(0, 1)
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Standardized Gaussian Connectivity"
+    ),
+    fill = "Standardized kernel"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D5) Distance to nearest occupied source block (km)
+### M5: nearest_occ_dist_km
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = nearest_occ_dist_km)) +
+  
+  scale_fill_viridis_c(
+    na.value = "grey90"
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Distance to Nearest Occupied Source"
+    ),
+    fill = "Distance (km)"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D6) Mean distance to occupied source blocks (km)
+### M6: mean_occ_dist_km
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = mean_occ_dist_km)) +
+  
+  scale_fill_viridis_c(
+    na.value = "grey90"
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Mean Distance to Occupied Sources"
+    ),
+    fill = "Mean distance (km)"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D7) Source availability (binary)
+### M7: source_available
+
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = factor(source_available))) +
+  
+  scale_fill_viridis_d(
+    option = "viridis",
+    na.value = "grey90"
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Source Population Availability"
+    ),
+    fill = "Source available"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D8) SAC histograms
+
+ggplot(
+  spp_blocks_sf,
+  aes(x = idw_connectivity)
+) +
+  
+  geom_histogram(
+    bins = 30
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- IDW Connectivity Distribution"
+    ),
+    x = "IDW connectivity"
+  ) +
+  
+  theme_minimal()
+
+
+
+# D9) SAC correlations
+
+sac_metrics <- spp_blocks_sf %>%
+  
+  st_drop_geometry() %>%
+  
+  dplyr::select(
+    n_occ_neighbors,
+    idw_connectivity,
+    kernel_connectivity_raw,
+    kernel_connectivity_std,
+    nearest_occ_dist_km,
+    mean_occ_dist_km,
+    source_available
+  )
+
+cor(
+  sac_metrics,
+  use = "pairwise.complete.obs"
+)
+
+
+
+# D10) SAC summaries
+
+summary(spp_blocks_sf$n_occ_neighbors)
+
+summary(spp_blocks_sf$idw_connectivity)
+
+summary(spp_blocks_sf$kernel_connectivity_std)
+
+summary(spp_blocks_sf$nearest_occ_dist_km)
+
+summary(spp_blocks_sf$mean_occ_dist_km)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# d1_a) raw IDW SAC Surface (km^-1)
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = idw_occ)) +
+  
+  scale_fill_viridis_c() +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- IDW Occupancy SAC"
+    )
+  ) +
+  
+  theme_minimal()
+
+
+# d1_b) kernel occupancy
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = kernel_occ_std)) + #standardized kernel
+  
+  scale_fill_viridis_c() +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Standardized Gaussian Kernel SAC"
+    )
+  ) +
+  
+  theme_minimal()
+
+
+# d2) neighbor count map 
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = n_occ_neighbors)) +
+  
+  scale_fill_viridis_c() +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Occupied Neighbor Count"
+    )
+  ) +
+  
+  theme_minimal()
+
+
+# d3) neighbor isolation map
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = nearest_occ_dist_km)) +
+  
+  scale_fill_viridis_c(
+    na.value = "grey90"
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Distance to Nearest Occupied Neighbor"
+    )
+  ) +
+  
+  theme_minimal()
+
+
+# d4) source availability map
+ggplot(spp_blocks_sf) +
+  
+  geom_sf(aes(fill = factor(source_available))) +
+  
+  scale_fill_viridis_d(
+    option = "viridis",
+    na.value = "grey90"
+  ) +
+  
+  labs(
+    title = paste(
+      spp_name,
+      "- Source Population Availability"
+    ),
+    fill = "Source available"
+  ) +
+  
+  theme_minimal()
+
+
+
+
+# d5) SAC histograms
+ggplot(
+  spp_blocks_sf,
+  aes(x = idw_occ)
+) +
+  
+  geom_histogram(
+    bins = 30
+  ) +
+  
+  theme_minimal()
+
+
+
+# d5) SAC correlations
+sac_metrics <- spp_blocks_sf %>%
+  
+  st_drop_geometry() %>%
+  
+  dplyr::select(
+    n_occ_neighbors,
+    idw_occ,
+    kernel_occ_std,
+    nearest_occ_dist_km,
+    mean_occ_dist_km
+  )
+
+cor(sac_metrics, use = "pairwise.complete.obs")
+
+summary(spp_blocks_sf$n_occ_neighbors)
+
+
+
+
+
+
+
+
 ############################################################## NEW W/ DHAARMa, SEMIVARIOGRAMS
 
 ### DATA ###

@@ -44,6 +44,7 @@ pacman::p_load(
   viridis,
   gt,
   sf,
+  gpkg,
   webshot2
   
 )
@@ -67,42 +68,37 @@ spp_zf_rll <- spp_zf_rll %>%
 
 
 # Atlas Block Data #
-blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>%
-  rename(
-    atlas_block = BLOCK_ID,
-    priority_block = BLOCK_STAT
-  ) %>%
-  mutate(
-    priority_block = case_when(
-      priority_block %in% c("Regular Block", "Specialty Block") ~ 0L,
-      priority_block %in% c("Priority Block") ~ 1L,
-      TRUE ~ NA_integer_
-    )
-  )
+### Native: EPSG:3071, Wisconsin Transverse Mercator
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks.gpkg")
+blocks_all <- blocks_all_sf$atlas_block # vector
 
+blocks_rll_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks_rll.gpkg")
+blocks_rll <- blocks_rll_sf$atlas_block # vector
 
-block_centroids_df <- blocks_all_sf %>%
-  st_centroid() %>%
-  mutate(
-    lon = st_coordinates(.)[,1],
-    lat = st_coordinates(.)[,2],
-    lon_z = as.numeric(scale(lon)),
-    lat_z = as.numeric(scale(lat)),
-    x_km = lon / 1000,
-    y_km = lat / 1000,
-    x_km_z = as.numeric(scale(x_km)),
-    y_km_z = as.numeric(scale(y_km))
-  ) %>%
-  st_drop_geometry() %>%
-  dplyr::select(atlas_block, lon, lat, lon_z, lat_z, x_km, y_km, x_km_z, y_km_z)
+#blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% 
+#  rename(
+#    atlas_block = BLOCK_ID,
+#    priority_block = BLOCK_STAT
+#  ) %>%
+#  mutate(
+#    priority_block = case_when(
+#      priority_block %in% c("Regular Block", "Specialty Block") ~ 0L,
+#      priority_block %in% c("Priority Block") ~ 1L,
+#      TRUE ~ NA_integer_
+#    )
+#  )
 
+#st_write(
+#  blocks_all_sf,
+#  "data/maps/wibba/Wisconsin_BBA_blocks.gpkg",
+#  delete_layer = TRUE
+#)
 
-wibba_summary_rll <- read.csv("data/summaries/wibba_summary_rll.csv") # df
-blocks_rll <- wibba_summary_rll$atlas_block # vector
-
-blocks_rll_sf <- blocks_all_sf %>%
-  filter(atlas_block %in% blocks_rll)
-
+#st_write(
+#  blocks_rll_sf,
+#  "data/maps/wibba/Wisconsin_BBA_blocks_rll.gpkg",
+#  delete_layer = TRUE
+#)
 
 
 # Covariate Data #
@@ -117,7 +113,7 @@ covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
 #write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
 
 
-covars_z_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
+covars_z_rll <- read.csv("data/summaries/covars_z_rll.csv") # df
 
 #covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
 #  mutate(across(

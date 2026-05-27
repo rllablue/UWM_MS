@@ -92,7 +92,7 @@ spp_blocks_sf <- spp_blocks_sf %>% # create centroids
 max_disp_km <- 20 # species-specific max dispersal distance
 max_disp_m  <- max_disp_km * 1000 # EPSG:3071 = meters
 
-sigma_km <- max_disp_km / 2 # for Gaussian kernels
+sigma_km <- 20 # for Gaussian kernels
 sigma_m  <- sigma_km * 1000
 
 # 2b) A1 occupancy status (dispersal source)
@@ -262,9 +262,9 @@ ggplot(spp_blocks_sf) +
   scale_fill_viridis_c() +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- Occupied Neighbor Count"
+      ": Occupied Neighbor Count (",max_disp_km, " km)"
     ),
     fill = "Neighbor count"
   ) +
@@ -283,9 +283,9 @@ ggplot(spp_blocks_sf) +
   scale_fill_viridis_c() +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- IDW Connectivity"
+      ": IDW Connectivity (",max_disp_km, " km)"
     ),
     fill = "IDW"
   ) +
@@ -304,9 +304,9 @@ ggplot(spp_blocks_sf) +
   scale_fill_viridis_c() +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- Raw Gaussian Connectivity"
+      ": Raw Gaussian Connectivity (",max_disp_km, " km)"
     ),
     fill = "Raw kernel"
   ) +
@@ -327,9 +327,9 @@ ggplot(spp_blocks_sf) +
   ) +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- Standardized Gaussian Connectivity"
+      ": Standardized Gaussian Connectivity (",max_disp_km, " km)"
     ),
     fill = "Standardized kernel"
   ) +
@@ -350,9 +350,9 @@ ggplot(spp_blocks_sf) +
   ) +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- Distance to Nearest Occupied Source"
+      " Distance to Nearest Occupied Source (",max_disp_km, " km)"
     ),
     fill = "Distance (km)"
   ) +
@@ -373,9 +373,9 @@ ggplot(spp_blocks_sf) +
   ) +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- Mean Distance to Occupied Sources"
+      ": Mean Distance to Occupied Sources (",max_disp_km, " km)"
     ),
     fill = "Mean distance (km)"
   ) +
@@ -397,9 +397,9 @@ ggplot(spp_blocks_sf) +
   ) +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- Source Population Availability"
+      ": Source Population Availability (",max_disp_km, " km)"
     ),
     fill = "Source available"
   ) +
@@ -420,9 +420,9 @@ ggplot(
   ) +
   
   labs(
-    title = paste(
+    title = paste0(
       spp_name,
-      "- IDW Connectivity Distribution"
+      ": IDW Connectivity Distribution (",max_disp_km, " km)"
     ),
     x = "IDW connectivity"
   ) +
@@ -471,143 +471,442 @@ summary(spp_blocks_sf$mean_occ_dist_km)
 
 
 
+### MODEL SPATIAL TERM ###
+
+# Use std Gaussian kernel (smoothed distance decay function tuned w sigma) 
+### as model covariate term to capture influence of plausible source populations
+###  on occupancy in a given block.
+# Not "just" a nuisance term, but biologically informed population connectivity metric; 
+### i.e. not just correcting residuals, modeling dispersal limitation, rescue effects,
+### colonization pressure, neighborhood density.
 
 
+# Define SAC term
+sac_covar <- c(
+  "kernel_connectivity_std"
+)
 
-
-
-
-
-
-
-
-
-
-
-
-# d1_a) raw IDW SAC Surface (km^-1)
-ggplot(spp_blocks_sf) +
-  
-  geom_sf(aes(fill = idw_occ)) +
-  
-  scale_fill_viridis_c() +
-  
-  labs(
-    title = paste(
-      spp_name,
-      "- IDW Occupancy SAC"
-    )
-  ) +
-  
-  theme_minimal()
-
-
-# d1_b) kernel occupancy
-ggplot(spp_blocks_sf) +
-  
-  geom_sf(aes(fill = kernel_occ_std)) + #standardized kernel
-  
-  scale_fill_viridis_c() +
-  
-  labs(
-    title = paste(
-      spp_name,
-      "- Standardized Gaussian Kernel SAC"
-    )
-  ) +
-  
-  theme_minimal()
-
-
-# d2) neighbor count map 
-ggplot(spp_blocks_sf) +
-  
-  geom_sf(aes(fill = n_occ_neighbors)) +
-  
-  scale_fill_viridis_c() +
-  
-  labs(
-    title = paste(
-      spp_name,
-      "- Occupied Neighbor Count"
-    )
-  ) +
-  
-  theme_minimal()
-
-
-# d3) neighbor isolation map
-ggplot(spp_blocks_sf) +
-  
-  geom_sf(aes(fill = nearest_occ_dist_km)) +
-  
-  scale_fill_viridis_c(
-    na.value = "grey90"
-  ) +
-  
-  labs(
-    title = paste(
-      spp_name,
-      "- Distance to Nearest Occupied Neighbor"
-    )
-  ) +
-  
-  theme_minimal()
-
-
-# d4) source availability map
-ggplot(spp_blocks_sf) +
-  
-  geom_sf(aes(fill = factor(source_available))) +
-  
-  scale_fill_viridis_d(
-    option = "viridis",
-    na.value = "grey90"
-  ) +
-  
-  labs(
-    title = paste(
-      spp_name,
-      "- Source Population Availability"
-    ),
-    fill = "Source available"
-  ) +
-  
-  theme_minimal()
-
-
-
-
-# d5) SAC histograms
-ggplot(
-  spp_blocks_sf,
-  aes(x = idw_occ)
-) +
-  
-  geom_histogram(
-    bins = 30
-  ) +
-  
-  theme_minimal()
-
-
-
-# d5) SAC correlations
-sac_metrics <- spp_blocks_sf %>%
+sac_vars_df <- spp_blocks_sf %>%
   
   st_drop_geometry() %>%
   
   dplyr::select(
-    n_occ_neighbors,
-    idw_occ,
-    kernel_occ_std,
-    nearest_occ_dist_km,
-    mean_occ_dist_km
+    atlas_block,
+    all_of(sac_covar)
   )
 
-cor(sac_metrics, use = "pairwise.complete.obs")
 
-summary(spp_blocks_sf$n_occ_neighbors)
+data_dir_sac <- lapply(
+  data_dir,
+  function(df) {
+    
+    left_join(
+      df,
+      sac_vars_df,
+      by = "atlas_block"
+    )
+  }
+)
+
+
+
+# Fit models
+pa_sac_glm_models <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+
+    glm(
+      formula = pa_sac_formulas[[nm]],
+      data    = data_dir_sac[[nm]],
+      family  = binomial
+    )
+  }
+)
+
+names(pa_sac_glm_models) <- names(pa_glm_models) 
+pa_sac_glm_summaries <- lapply(pa_sac_glm_models, summary) # model output
+pa_sac_glm_summaries
+
+
+pa_sac_predictions <- lapply( # predicted probabilities
+  pa_sac_glm_models,
+  function(model) {
+    
+    predict(
+      model,
+      type = "response"
+    )
+  }
+)
+
+
+pa_sac_residuals <- lapply( # Pearson's residuals
+  pa_sac_glm_models,
+  function(model) {
+    
+    residuals(
+      model,
+      type = "pearson"
+    )
+  }
+)
+
+
+
+# Model comparison
+pa_sac_model_comparison <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+    
+    base_mod <- pa_glm_models[[nm]]
+    sac_mod  <- pa_sac_glm_models[[nm]]
+    
+    data.frame(
+      model = c(
+        "Baseline_PA",
+        "Localized_SAC"
+      ),
+      
+      AICc = c(
+        MuMIn::AICc(base_mod),
+        MuMIn::AICc(sac_mod)
+      ),
+      
+      delta_AICc = c(
+        0,
+        MuMIn::AICc(sac_mod) -
+          MuMIn::AICc(base_mod)
+      ),
+      
+      deviance_explained = c(
+        1 - (base_mod$deviance / base_mod$null.deviance),
+        1 - (sac_mod$deviance  / sac_mod$null.deviance)
+      )
+    )
+  }
+)
+
+names(pa_sac_model_comparison) <- names(pa_glm_models)
+
+pa_sac_model_comparison
+
+
+
+
+### SEMIVARIOGRAM RESIDUAL ANALYSIS ###
+
+### DHARMa standardized quantile residuals for semivariogram construction; compare
+# spatial structure across true null, pa null, full pa, pa with sac term
+
+# Construct candidate models for comparison
+GetResponseName <- function(model_name) {
+  
+  strsplit(model_name, "_")[[1]][2]
+}
+
+
+# True Null
+pa_true_null_models <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+    
+    response <- GetResponseName(nm)
+    
+    glm(
+      as.formula(
+        paste(response, "~ 1")
+      ),
+      data   = data_dir[[nm]],
+      family = binomial
+    )
+  }
+)
+
+names(pa_true_null_models) <- names(pa_glm_models)
+
+
+# Null PA
+pa_paonly_models <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+    
+    response <- GetResponseName(nm)
+    
+    glm(
+      as.formula(
+        paste(response, "~ pa_prop")
+      ),
+      data   = data_dir[[nm]],
+      family = binomial
+    )
+  }
+)
+
+names(pa_paonly_models) <- names(pa_glm_models)
+
+
+# Full PA
+pa_full_models <- pa_glm_models
+
+
+# SAC
+pa_localized_sac_models <- pa_sac_glm_models
+
+
+
+# Model Sets
+model_sets <- list(
+  
+  true_null    = pa_true_null_models,
+  pa_null      = pa_paonly_models,
+  full_pa      = pa_full_models,
+  localized_sac = pa_localized_sac_models
+)
+
+
+coords_df <- spp_blocks_sf %>%
+  st_drop_geometry() %>%
+  dplyr::select(atlas_block, x_km, y_km)
+
+# sanity check
+stopifnot(!any(is.na(coords_df$x_km)))
+stopifnot(!any(is.na(coords_df$y_km)))
+
+
+
+
+
+# Semivariogram (km space)
+set.seed(123)
+
+extract_dharma <- function(models, model_type) {
+  
+  bind_rows(lapply(names(models), function(nm) {
+    
+    mod <- models[[nm]]
+    
+    sim <- DHARMa::simulateResiduals(mod, plot = FALSE)
+    
+    data.frame(
+      atlas_block = data_dir[[nm]]$atlas_block,
+      residual    = sim$scaledResiduals,
+      model_name  = nm,
+      model_type  = model_type
+    )
+  }))
+}
+
+
+dharma_residuals <- bind_rows(
+  extract_dharma(model_sets$true_null,     "true_null"),
+  extract_dharma(model_sets$pa_null,       "pa_null"),
+  extract_dharma(model_sets$full_pa,       "full_pa"),
+  extract_dharma(model_sets$localized_sac, "localized_sac")
+)
+
+
+# attach coords
+dharma_residuals <- dharma_residuals %>%
+  left_join(coords_df, by = "atlas_block")
+
+# hard safety check
+stopifnot(!any(is.na(dharma_residuals$x_km)))
+stopifnot(!any(is.na(dharma_residuals$y_km)))
+
+
+# construct semivariogram
+semivar_df <- dharma_residuals %>%
+  
+  group_by(model_type, model_name) %>%
+  
+  group_modify(~ {
+    
+    dat <- .x
+    
+    # convert to spatial object
+    gdf <- sf::st_as_sf(
+      dat,
+      coords = c("x_km", "y_km"),
+      crs = NA_real_
+    )
+    
+    # empirical variogram of residual spatial structure
+    v <- gstat::variogram(
+      residual ~ 1,
+      locations = gdf,
+      cutoff = 300,  # km
+      width  = 25    # km bins
+    )
+    
+    as.data.frame(v)
+  }) %>%
+  
+  ungroup()
+
+
+
+
+
+
+# Visualize
+semivar_df <- semivar_df %>%
+  
+  mutate(
+    
+    process = case_when(
+      grepl("_col$", model_name) ~ "Colonization",
+      grepl("_ext$", model_name) ~ "Extirpation",
+      TRUE ~ "All transitions"
+    ),
+    
+    model_type = factor(
+      model_type,
+      levels = c(
+        "true_null",
+        "pa_null",
+        "full_pa",
+        "localized_sac"
+      ),
+      labels = c(
+        "True null",
+        "PA-only null",
+        "Full PA model",
+        "Localized SAC model"
+      )
+    )
+  ) %>%
+  
+  arrange(model_type, model_name, dist) %>%
+  
+  filter(!is.na(gamma))
+
+
+# 0-300 km
+ggplot(
+  semivar_df,
+  aes(
+    x = dist,
+    y = gamma,
+    color = model_type,
+    group = interaction(model_type, model_name, process)
+  )
+) +
+  
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  geom_point(size = 1.8, na.rm = TRUE) +
+  
+  facet_wrap(~process) +
+  
+  scale_color_manual(
+    values = c(
+      "True null" = "grey40",
+      "PA-only null" = "orange",
+      "Full PA model" = "turquoise4",
+      "Localized SAC model" = "purple4"
+    )
+  ) +
+  
+  labs(
+    title = "Residual Spatial Structure Across Model Types",
+    x = "Distance between blocks (km)",
+    y = "Semivariance of DHARMa residuals",
+    color = NULL
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+
+# 0-100 km
+ggplot(
+  semivar_df %>% filter(dist <= 100),
+  aes(
+    x = dist,
+    y = gamma,
+    color = model_type,
+    group = interaction(model_type, model_name, process)
+  )
+) +
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  geom_point(size = 1.6, na.rm = TRUE) +
+  
+  facet_wrap(~process) +
+  
+  scale_color_manual(
+    values = c(
+      "True null" = "grey40",
+      "PA-only null" = "orange",
+      "Full PA model" = "turquoise4",
+      "Localized SAC model" = "purple4"
+    )
+  ) +
+  
+  labs(
+    title = "Residual Spatial Structure (0–100 km)",
+    x = "Distance between blocks (km)",
+    y = "Semivariance of DHARMa residuals",
+    color = NULL
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+
+
+# Summarize semivariance
+semivar_summary <- semivar_df %>%
+  
+  group_by(process, model_type) %>%
+  
+  summarise(
+    
+    mean_semivariance =
+      mean(gamma, na.rm = TRUE),
+    
+    max_semivariance =
+      max(gamma, na.rm = TRUE),
+    
+    min_semivariance =
+      min(gamma, na.rm = TRUE),
+    
+    semivariance_range =
+      max(gamma, na.rm = TRUE) -
+      min(gamma, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+
+
+semivar_summary
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

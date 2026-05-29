@@ -485,13 +485,13 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # Output covariates
 # stable_covars_reduced
 
-guild_key
-land_covs_reduced <- c()
+#guild_key
+#land_covs_reduced <- c()
 
-climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c("tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff")
+#climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
+#climate_covs_reduced <- c()
 
-numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
+#numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
 
 
@@ -549,37 +549,15 @@ names(vif_results) <- names(mod_dfs_all)
 
 
 # Output Covariates
-guild_key
-land_covs_reduced <- c("developed_total_base", "grass_pasture_base",
-                       "forest_mixed_base", "forest_evergreen_base", 
-                       "wetlands_woody_base", "wetlands_herb_base",
-                       
-                       "forest_total_diff", "wetlands_total_diff")
+#guild_key
+#land_covs_reduced <- c()
 
-climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
-climate_covs_reduced <- c()
+#climate_covs_reduced # "tmax_38yr", "tmax_diff", "prcp_38yr", "tmin_diff", "prcp_diff"
+#climate_covs_reduced <- c()
 
-numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
+#numeric_covs_reduced <- c(land_covs_reduced, climate_covs_reduced, stable_covs_reduced)
 
-
-
-# Repeat
-vif_results <- lapply(
-  names(mod_dfs_all),
-  function(nm) {
-    
-    cat("VIF for", nm, "\n")
-    
-    GetVIFs(
-      data = mod_dfs_all[[nm]],
-      response = responses[nm],
-      covs = numeric_covs_reduced
-    )
-  }
-)
-
-names(vif_results) <- names(mod_dfs_all)
-
+### repeat above if needed 
 
 
 

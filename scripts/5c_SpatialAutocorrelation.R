@@ -1,5 +1,7 @@
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(psych, usdm)
+pacman::p_load(psych, 
+               usdm,
+               )
 
 
 # Core
@@ -44,20 +46,33 @@ library(mgcViz)
 
 ################################################################################ SPATIAL KERNELS (5.26.26)
 
-######################
-### LOCALIZED SAC ###
-#####################
+#############################
+### --- ASSESSING SAC --- ###
+#############################
 
-# Species-specific occupancy structure based on Atlas 1 occupied source populations 
-### within a species-defined dispersal neighborhood.
+### Neighborhood structure 1) conditioned on proximity to Atlas 1-occupied blocks 
+# (i.e. source populations w dispersal potential) and 2) within a species-specific 
+# maximum dispersal radius.
+
+### Steps
+# 1) Data wrangling, spatial specs
+# 2) Pairwise neighborhood structure
+# 3) Pairwise spatial weighting schemes
+# 4) Global SAC testing
+# 5) Block-level SAC metrics / covariates
 
 
-# 1) Join Data
-### Species-specific occupancy data, Atlas block geometry (EPSG:3071)
 
+### --- DATA WRANGLING --- ###
+
+# A) Select species
+### Be sure aligned with current pa_glm_models fit
 spp_alpha <- "CAWA"
 spp_name <- "Canada Warbler"
 
+
+# B) Join species occupancy, Atlas block geometry 
+### Native Atlas geometry: Wisconsin Transverse Mercator (EPSG:3071, units = meters)
 spp_blocks_sf <- blocks_rll_sf %>% # join data
   left_join(
     mod_data_all %>%
@@ -74,7 +89,9 @@ spp_blocks_sf <- blocks_rll_sf %>% # join data
   )
 
 
-spp_blocks_sf <- spp_blocks_sf %>% # create centroids
+# C) Represent blocks via their centroids 
+### Necessary for pairwise distance comparison
+spp_blocks_sf <- spp_blocks_sf %>% 
   mutate(
     centroid = st_centroid(geom)
   ) %>%
@@ -86,36 +103,44 @@ spp_blocks_sf <- spp_blocks_sf %>% # create centroids
   )
 
 
-# 2) Define Dispersal Neighborhood
-
-# 2a) Neighborhood Size
-max_disp_km <- 20 # species-specific max dispersal distance
-max_disp_m  <- max_disp_km * 1000 # EPSG:3071 = meters
-
-sigma_km <- 20 # for Gaussian kernels
-sigma_m  <- sigma_km * 1000
-
-# 2b) A1 occupancy status (dispersal source)
+# D) Identify block occupancy status in A1
+### i.e. identify potential source populations
 a1_occu <- spp_blocks_sf$det_Atlas1 # vector
 
 
 
-# 3) Define Neighborhood Structure
+### --- SPATIAL SPECS --- ###
 
-# 3a) Pairwise Centroid Distances
+### A) Define biological neighborhood structure
+
+# Species-specific maximum dispersal radius
+### constrain biologically plausible neighborhood extent
+max_disp_km <- 20
+max_disp_m  <- max_disp_km * 1000 # EPSG:3071
+
+
+
+### B) Define pairwise, statistical neighborhood structure 
+
+# Pairwise centroid distances
 dist_matrix <- st_distance(
   spp_blocks_sf$centroid
 )
 
 dist_matrix <- units::drop_units(dist_matrix)
 
-diag(dist_matrix) <- NA_real_ # remove "self-neighbors"
 
+# Remove "self-as-neighbor" relationship
+diag(dist_matrix) <- NA_real_
+
+
+# Transform distance matrix (m to km) for plot legibility
+### Atlas blocks = 5 x 5 x km (scale of model inference)
 dist_km <- dist_matrix / 1000
 
 
-# 3b) Neighborhood
-# A1-occupied neighbors within dispersal radius
+# Define criteria for "source-neighbor" status
+### A1-occupied blocks within max dispersal radius
 neighbor_matrix <- (
   !is.na(dist_matrix) &
     dist_matrix <= max_disp_m
@@ -123,64 +148,87 @@ neighbor_matrix <- (
   a1_occu[col(dist_matrix)] == 1
 )
 
-# All possible neighbors within dispersal radius
+
+# All blocks within max dispersal radius
+### i.e. source-neighbor and non-source-neighbors
 all_neighbor_matrix <- (
   !is.na(dist_matrix) &
     dist_matrix <= max_disp_m
 )
 
 
-# 4) Inverse-Distance Weighting (IDW)
-### # w_ij = 1 / d_ij
-idw_matrix <- 1 / dist_km
 
+### C) Quantify source-neighbor metrics
+
+# Q1) Count-based source-neighbor metrics
+spp_blocks_sf$n_occ_neighbors <- rowSums(
+  neighbor_matrix, 
+  na.rm = TRUE
+)
+
+
+# Q2) Binary source-neighbor metrics
+### 1 = at least one A1-occupied source block within dispersal radius; 
+# 0 = none within radius; NOT a pairwise metric
+spp_blocks_sf$source_available <- ifelse(
+  spp_blocks_sf$n_occ_neighbors > 0,
+  1,
+  0
+)
+
+
+# Q3) Raw distance-based source-neighbor metrics (km)
+nearest_occ_dist <- apply(dist_matrix, 1, function(x) { # dist to nearest source-neighbor
+  vals <- x[!is.na(x) & x <= max_disp_m & a1_occu == 1]
+  if(length(vals) == 0) NA_real_ else min(vals)
+})
+
+mean_occ_dist <- apply(dist_matrix, 1, function(x) { # mean dist to nearest source-neighbor
+  vals <- x[!is.na(x) & x <= max_disp_m & a1_occu == 1]
+  if(length(vals) == 0) NA_real_ else mean(vals)
+})
+
+spp_blocks_sf$nearest_occ_dist_km <- nearest_occ_dist / 1000
+spp_blocks_sf$mean_occ_dist_km    <- mean_occ_dist / 1000
+
+
+
+### Q4) Weighted distance-based source-neighbor metrics
+# matrices define how neighboring blocks influence each other spatially, i.e. 
+# pairwise relationships (NOT block-level statistics)
+
+
+# Q4a) Inverse-distance weighting (IDW)
+### weight function: w_ij = 1 / d_ij
+### Nearby, occupied source populations more strongly influence block-level response
+### than more distance source populations (un-smoothed)
+idw_matrix <- 1 / dist_km
 idw_matrix[!neighbor_matrix] <- 0
 
-
-# 5) Gaussian kernel weighting
-kernel_matrix <- exp( # gaussian weights for A1-occupied neighbors
-  -(dist_matrix^2) / (2 * sigma_m^2)
-)
-
-kernel_matrix[!neighbor_matrix] <- 0
+spp_blocks_sf$idw_connectivity <- rowSums(idw_matrix, na.rm = TRUE)
 
 
-kernel_max_matrix <- exp( # maximum gaussian neighborhood influence 
-  -(dist_matrix^2) / (2 * sigma_m^2)
-)
+# Q4b) Raw Gaussian kernel weighting
+### Smoothed distance-decay function tuned by sigma; influence declines continuously
+### w increased distance; decay process less abrupt than IDW.
+### sigma controls rate of decay, i.e. neighborhood smoothness, connectivity
+# small sigma = adjacent populations influence greatly; larger = 
+sigma_km <- 15
+sigma_m  <- sigma_km * 1000
 
+kernel_matrix <- exp(-(dist_matrix^2) / (2 * sigma_m^2))
+kernel_matrix[!neighbor_matrix] <- 0 # only source-neighbors
+
+spp_blocks_sf$kernel_connectivity_raw <- rowSums(kernel_matrix, na.rm = TRUE) 
+
+# Standardized Gaussian kernel weighting Maximum Gaussian neighborhood influence 
+# Maximum Gaussian neighborhood influence, i.e. If all neighboring blocks (within
+# dispersal radius) were A1-occupied, then what would be the max possible spatial 
+# influence on a given block?
+kernel_max_matrix <- exp(-(dist_matrix^2) / (2 * sigma_m^2))
 kernel_max_matrix[!all_neighbor_matrix] <- 0
 
-
-
-# 6) Collect SAC Metrics
-
-# M1) Occupied Neighbor Count
-spp_blocks_sf$n_occ_neighbors <- rowSums(
-  neighbor_matrix,
-  na.rm = TRUE
-)
-
-
-# M2) IDW Connectivity (km^-1)
-spp_blocks_sf$idw_connectivity <- rowSums(
-  idw_matrix,
-  na.rm = TRUE
-)
-
-
-# M3) Raw Gaussian Connectivity
-spp_blocks_sf$kernel_connectivity_raw <- rowSums(
-  kernel_matrix,
-  na.rm = TRUE
-)
-
-
-# M4) Standardized Gaussian Connectivity
-kernel_max <- rowSums(
-  kernel_max_matrix,
-  na.rm = TRUE
-)
+kernel_max <- rowSums(kernel_max_matrix, na.rm = TRUE)
 
 spp_blocks_sf$kernel_connectivity_std <- ifelse(
   kernel_max > 0,
@@ -189,72 +237,75 @@ spp_blocks_sf$kernel_connectivity_std <- ifelse(
 )
 
 
-# M5) Distance to Nearest Occupied Source Block (km)
-nearest_occ_dist <- apply(
-  dist_matrix,
-  1,
-  function(x) {
-    
-    vals <- x[
-      !is.na(x) &
-        x <= max_disp_m &
-        a1_occu == 1
-    ]
-    
-    if(length(vals) == 0) {
-      return(NA_real_)
-    } else {
-      return(min(vals))
-    }
-  }
-)
-
-spp_blocks_sf$nearest_occ_dist_km <- (
-  nearest_occ_dist / 1000
-)
 
 
-# M6) Mean Distance to Occupied Source Blocks (km)
-mean_occ_dist <- apply(
-  dist_matrix,
-  1,
-  function(x) {
-    
-    vals <- x[
-      !is.na(x) &
-        x <= max_disp_m &
-        a1_occu == 1
-    ]
-    
-    if(length(vals) == 0) {
-      return(NA_real_)
-    } else {
-      return(mean(vals))
-    }
-  }
-)
-
-spp_blocks_sf$mean_occ_dist_km <- (
-  mean_occ_dist / 1000
-)
+### --- GLOBAL SAC DIAGNOSTICS --- ###
+### NOT models; spatial structure checks
 
 
-# M7) Source Availability Indicator
-### Binary: 1 = at least one A1-occupied source block within dispersal radius; 0 = none within radius
-spp_blocks_sf$source_available <- ifelse(
-  spp_blocks_sf$n_occ_neighbors > 0,
-  1,
-  0
-)
+### A) Quantitative diagnostics
+
+# A1) Correlations among metrics
+sac_metrics <- spp_blocks_sf %>%
+  st_drop_geometry() %>%
+  dplyr::select(
+    n_occ_neighbors,
+    idw_connectivity,
+    kernel_connectivity_raw,
+    kernel_connectivity_std,
+    nearest_occ_dist_km,
+    mean_occ_dist_km,
+    source_available
+  )
+
+sac_cor_matrix <- cor(sac_metrics, use = "pairwise.complete.obs")
+round(sac_cor_matrix, 2)
+
+sac_cor_pairs <- as.data.frame(as.table(sac_cor_matrix)) %>% # pairwise cor table
+  
+  rename(
+    metric_1 = Var1,
+    metric_2 = Var2,
+    correlation = Freq
+  ) %>%
+  
+  filter(metric_1 != metric_2) %>% # remove self-correlations
+  
+  rowwise() %>% # remove duplicate pairs
+  
+  mutate(
+    pair_id = paste(sort(c(metric_1, metric_2)), collapse = "__")
+  ) %>%
+  
+  ungroup() %>%
+  
+  distinct(pair_id, .keep_all = TRUE) %>%
+  
+  dplyr::select(
+    -pair_id
+  ) %>%
+  
+  filter(
+    abs(correlation) >= 0.7 # cor threshold
+  ) %>%
+  
+  arrange(desc(correlation))
+
+sac_cor_pairs
+
+
+# A2) Univariate distributions
+summary(spp_blocks_sf$n_occ_neighbors)
+summary(spp_blocks_sf$idw_connectivity)
+summary(spp_blocks_sf$kernel_connectivity_std)
+summary(spp_blocks_sf$nearest_occ_dist_km)
+summary(spp_blocks_sf$mean_occ_dist_km)
 
 
 
+# B) Diagnostic Plots 
 
-# 7) Diagnostic Plots 
-
-# D1) Occupied neighbor count
-### M1: n_occ_neighbors
-
+# DP1) Occupied neighbor count
 ggplot(spp_blocks_sf) +
   
   geom_sf(aes(fill = n_occ_neighbors)) +
@@ -273,7 +324,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D2) IDW connectivity
+# DP2) IDW connectivity
 ### M2: idw_connectivity (km^-1)
 
 ggplot(spp_blocks_sf) +
@@ -294,7 +345,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D3) Raw Gaussian connectivity
+# DP3) Raw Gaussian connectivity
 ### M3: kernel_connectivity_raw
 
 ggplot(spp_blocks_sf) +
@@ -315,7 +366,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D4) Standardized Gaussian connectivity (approx. 0-1)
+# DP4) Standardized Gaussian connectivity (approx. 0-1)
 ### M4: kernel_connectivity_std
 
 ggplot(spp_blocks_sf) +
@@ -338,7 +389,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D5) Distance to nearest occupied source block (km)
+# DP5) Distance to nearest occupied source block (km)
 ### M5: nearest_occ_dist_km
 
 ggplot(spp_blocks_sf) +
@@ -361,7 +412,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D6) Mean distance to occupied source blocks (km)
+# DP6) Mean distance to occupied source blocks (km)
 ### M6: mean_occ_dist_km
 
 ggplot(spp_blocks_sf) +
@@ -384,7 +435,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D7) Source availability (binary)
+# DP7) Source availability (binary)
 ### M7: source_available
 
 ggplot(spp_blocks_sf) +
@@ -408,7 +459,7 @@ ggplot(spp_blocks_sf) +
 
 
 
-# D8) SAC histograms
+# DP8) SAC histograms
 
 ggplot(
   spp_blocks_sf,
@@ -431,78 +482,40 @@ ggplot(
 
 
 
-# D9) SAC correlations
-
-sac_metrics <- spp_blocks_sf %>%
-  
-  st_drop_geometry() %>%
-  
-  dplyr::select(
-    n_occ_neighbors,
-    idw_connectivity,
-    kernel_connectivity_raw,
-    kernel_connectivity_std,
-    nearest_occ_dist_km,
-    mean_occ_dist_km,
-    source_available
-  )
-
-cor(
-  sac_metrics,
-  use = "pairwise.complete.obs"
-)
 
 
+###################################
+### --- MODEL SPATIAL TERM --- ###
+##################################
 
-# D10) SAC summaries
+### Select representative term/s to include in model as biologically informed covariate
+# representing/modeling population connectivity (i.e. block susceptibility to dispersal, propogule
+# pressure, rescue effects, etc.); NOT a residual/autoregressive type control term
 
-summary(spp_blocks_sf$n_occ_neighbors)
+### Used here: kernel_connectivity_std (std gaussian kernel weighting)
 
-summary(spp_blocks_sf$idw_connectivity)
-
-summary(spp_blocks_sf$kernel_connectivity_std)
-
-summary(spp_blocks_sf$nearest_occ_dist_km)
-
-summary(spp_blocks_sf$mean_occ_dist_km)
-
-
-
-
-
-
-### MODEL SPATIAL TERM ###
-
-# Use std Gaussian kernel (smoothed distance decay function tuned w sigma) 
-### as model covariate term to capture influence of plausible source populations
-###  on occupancy in a given block.
-# Not "just" a nuisance term, but biologically informed population connectivity metric; 
-### i.e. not just correcting residuals, modeling dispersal limitation, rescue effects,
-### colonization pressure, neighborhood density.
-
-
-# Define SAC term
-sac_covar <- c(
-  "kernel_connectivity_std"
-)
-
-sac_vars_df <- spp_blocks_sf %>%
-  
-  st_drop_geometry() %>%
-  
-  dplyr::select(
-    atlas_block,
-    all_of(sac_covar)
-  )
-
-
+# A) Data wrangling
+### create df of all SAC terms for ease of substitution
 data_dir_sac <- lapply(
   data_dir,
   function(df) {
     
     left_join(
       df,
-      sac_vars_df,
+      spp_blocks_sf %>%
+        st_drop_geometry() %>%
+        dplyr::select(
+          atlas_block,
+          x,
+          y,
+          source_available,
+          n_occ_neighbors,
+          nearest_occ_dist_km,
+          mean_occ_dist_km,
+          idw_connectivity,
+          kernel_connectivity_raw,
+          kernel_connectivity_std
+        ),
       by = "atlas_block"
     )
   }
@@ -510,13 +523,17 @@ data_dir_sac <- lapply(
 
 
 
-# Fit models
+# B) Fit SAC term models
+### append term to best full models from previous script, i.e. pa_glm_models
 pa_sac_glm_models <- lapply(
   names(pa_glm_models),
   function(nm) {
 
     glm(
-      formula = pa_sac_formulas[[nm]],
+      formula = update(
+        formula(pa_glm_models[[nm]]),
+        . ~ . + kernel_connectivity_std # flexible covariate inclusion
+      ),
       data    = data_dir_sac[[nm]],
       family  = binomial
     )
@@ -524,47 +541,39 @@ pa_sac_glm_models <- lapply(
 )
 
 names(pa_sac_glm_models) <- names(pa_glm_models) 
-pa_sac_glm_summaries <- lapply(pa_sac_glm_models, summary) # model output
+
+pa_sac_glm_summaries <- lapply(pa_sac_glm_models, summary)
 pa_sac_glm_summaries
 
 
-pa_sac_predictions <- lapply( # predicted probabilities
-  pa_sac_glm_models,
-  function(model) {
-    
-    predict(
-      model,
-      type = "response"
-    )
-  }
-)
+
+# C) Model comparison
+### compare best full mode and sac-term fitted mod
+
+mcfadden_r2 <- function(model, null_model) {
+  
+  ll_model <- as.numeric(logLik(model))
+  ll_null  <- as.numeric(logLik(null_model))
+  
+  1 - (ll_model / ll_null)
+}
 
 
-pa_sac_residuals <- lapply( # Pearson's residuals
-  pa_sac_glm_models,
-  function(model) {
-    
-    residuals(
-      model,
-      type = "pearson"
-    )
-  }
-)
-
-
-
-# Model comparison
 pa_sac_model_comparison <- lapply(
   names(pa_glm_models),
   function(nm) {
     
     base_mod <- pa_glm_models[[nm]]
     sac_mod  <- pa_sac_glm_models[[nm]]
+    null_mod <- pa_true_null_models[[nm]]
+    
+    r2_base <- mcfadden_r2(base_mod, null_mod)
+    r2_sac  <- mcfadden_r2(sac_mod, null_mod)
     
     data.frame(
       model = c(
-        "Baseline_PA",
-        "Localized_SAC"
+        "Full_PA_Model",
+        "Full_SAC_Model"
       ),
       
       AICc = c(
@@ -574,13 +583,22 @@ pa_sac_model_comparison <- lapply(
       
       delta_AICc = c(
         0,
-        MuMIn::AICc(sac_mod) -
-          MuMIn::AICc(base_mod)
+        MuMIn::AICc(sac_mod) - MuMIn::AICc(base_mod)
       ),
       
       deviance_explained = c(
         1 - (base_mod$deviance / base_mod$null.deviance),
         1 - (sac_mod$deviance  / sac_mod$null.deviance)
+      ),
+      
+      mcfadden_R2 = c(
+        r2_base,
+        r2_sac
+      ),
+      
+      delta_mcfadden_R2 = c(
+        0,
+        r2_sac - r2_base
       )
     )
   }
@@ -593,19 +611,46 @@ pa_sac_model_comparison
 
 
 
-### SEMIVARIOGRAM RESIDUAL ANALYSIS ###
 
-### DHARMa standardized quantile residuals for semivariogram construction; compare
-# spatial structure across true null, pa null, full pa, pa with sac term
 
-# Construct candidate models for comparison
+#########################################
+### --- RESIDUAL SAC DIAGNOSTICS --- ###
+########################################
+
+### Evaluate whether adding biologically informed SAC covariates reduces
+# spatial structure in model residuals.
+### SAC Metrics: 
+# Moran's I: global SAC diagnostic; assess similarity of spatially adjacent residuals
+# Semivariance (-variograms): quantifies distance-decay (dissimilarity)structure of SAC across various scales
+### Residual Types:
+# DHARMa Residuals: standardized [U(0,1]), rank-based/quantile
+# Pearson Residuals: sd units, approx. N(mean, sd)
+
+
+### Workflow:
+# 1) Fit nested model hierarchy
+### Null, PA-only, Full-PA, SAC models
+# 2) Extract residuals
+### Pearson, DHARMa
+# 3) Quantify residual spatial structure
+### Define spatial weighting schemes (Moran's I)
+### Morans' I, Semivariance/Semivariograms
+# 4) Assess whether SAC term modulates residual structure
+# 5) If needed, autoregressive/spatial model approach
+
+
+### --- WRANGLE DATA, CONSTRUCT MODELS --- ###
+
+### A) Define model hierarchies
+# Null, PA-only, Full-PA, SAC models
+
+# Helper: Extract response name
 GetResponseName <- function(model_name) {
   
   strsplit(model_name, "_")[[1]][2]
 }
 
-
-# True Null
+# A1) Null models
 pa_true_null_models <- lapply(
   names(pa_glm_models),
   function(nm) {
@@ -625,7 +670,7 @@ pa_true_null_models <- lapply(
 names(pa_true_null_models) <- names(pa_glm_models)
 
 
-# Null PA
+# A2) PA-only models
 pa_paonly_models <- lapply(
   names(pa_glm_models),
   function(nm) {
@@ -645,38 +690,193 @@ pa_paonly_models <- lapply(
 names(pa_paonly_models) <- names(pa_glm_models)
 
 
-# Full PA
+# A3) Full-PA models
 pa_full_models <- pa_glm_models
 
 
-# SAC
+# A4) SAC models
 pa_localized_sac_models <- pa_sac_glm_models
 
 
-
-# Model Sets
+# A5) Combine, index models
 model_sets <- list(
   
-  true_null    = pa_true_null_models,
-  pa_null      = pa_paonly_models,
-  full_pa      = pa_full_models,
+  true_null     = pa_true_null_models,
+  pa_null       = pa_paonly_models,
+  full_pa       = pa_full_models,
   localized_sac = pa_localized_sac_models
 )
 
 
-coords_df <- spp_blocks_sf %>%
+
+### --- SPATIAL STRUCTURES --- ###
+
+### A) Define spatial coordinate structures
+
+# A1) Full block coords set (n = 3337)
+coords_lookup <- spp_blocks_sf %>%
   st_drop_geometry() %>%
-  dplyr::select(atlas_block, x_km, y_km)
+  dplyr::select(
+    atlas_block,
+    x_km,
+    y_km
+  )
 
-# sanity check
-stopifnot(!any(is.na(coords_df$x_km)))
-stopifnot(!any(is.na(coords_df$y_km)))
+# A2) Response-specific coords sets
+# Must partition block coord pool, as each model runs on block subset
+
+coords_by_model <- lapply( # partition blocks
+  names(pa_glm_models),
+  function(nm) {
+    
+    blocks <- data_dir[[nm]]$atlas_block
+    
+    coords <- coords_lookup %>%
+      filter(atlas_block %in% blocks)
+    
+    coords[
+      match(blocks, coords$atlas_block),
+    ]
+    
+  }
+)
+
+names(coords_by_model) <- names(pa_glm_models)
+
+
+distance_matrices <- lapply( # create response-specific centroids
+  coords_by_model,
+  function(coords) {
+    
+    d <- as.matrix(
+      dist(
+        coords[, c("x_km", "y_km")]
+      )
+    )
+    
+    diag(d) <- NA_real_
+    
+    d
+  }
+)
+
+
+### B) Response-specific neighborhood structures
+# within max dispersal distance
+neighbor_matrices <- lapply(
+  distance_matrices,
+  function(dist_matrix) {
+    
+    !is.na(dist_matrix) &
+      dist_matrix <= max_disp_km
+    
+  }
+)
+
+
+### C) Response-specific spatial weighting schemes
+# Necessary for Moran's I; After accounting for environment/climate/etc. in model, 
+# do residuals remain spatially autocorrelated AMONG biologically relevant neighborhood, 
+# i.e. DO use max dispersal radius, do NOT limit neighbors those occupied in A1
+
+### C1) Binary adjacency weights
+# all neighbors influence equally
+binary_weights <- lapply(
+  neighbor_matrices,
+  function(neighbor_matrix) {
+    
+    spdep::mat2listw(
+      neighbor_matrix * 1,
+      style = "W",
+      zero.policy = TRUE
+    )
+    
+  }
+)
+
+
+### C2) IDW spatial weights 
+# nearby neighbors influence more than faraway neighbors
+idw_weights <- lapply(
+  names(distance_matrices),
+  function(nm) {
+    
+    dist_matrix <- distance_matrices[[nm]]
+    
+    idw_matrix <- 1 / dist_matrix
+    
+    idw_matrix[
+      !neighbor_matrices[[nm]]
+    ] <- 0
+    
+    spdep::mat2listw(
+      idw_matrix,
+      style = "W",
+      zero.policy = TRUE
+    )
+    
+  }
+)
+
+names(idw_weights) <- names(distance_matrices)
+
+
+### C3) Gaussian kernel weights
+# assessed residual SAC for for source- and non-source neighbors
+# above GKW uses A1-occupancy to create static map of neighbor-summed influence on a given 
+# block, then creating covariate to model
+# from residual assessment, need to understand all existing spatial clustering 
+# (though still confined within max dispersal distance), regardless of previous occupancy
+gaussian_weights <- lapply(
+  names(distance_matrices),
+  function(nm) {
+    
+    dist_matrix <- distance_matrices[[nm]]
+    
+    kernel_matrix <- exp(
+      -(dist_matrix^2) /
+        (2 * sigma_km^2)
+    )
+    
+    kernel_matrix[
+      !neighbor_matrices[[nm]]
+    ] <- 0
+    
+    spdep::mat2listw(
+      kernel_matrix,
+      style = "W",
+      zero.policy = TRUE
+    )
+    
+  }
+)
+
+names(gaussian_weights) <- names(distance_matrices)
+
+
+
+### C4) Index weight sets
+weight_sets <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+    
+    list(
+      binary   = binary_weights[[nm]],
+      idw      = idw_weights[[nm]],
+      gaussian = gaussian_weights[[nm]]
+    )
+    
+  }
+)
+
+names(weight_sets) <- names(pa_glm_models)
 
 
 
 
+### --- EXTRACT MODEL RESIDUALS --- ###
 
-# Semivariogram (km space)
+### A) DHARMa residuals
 set.seed(123)
 
 extract_dharma <- function(models, model_type) {
@@ -685,17 +885,75 @@ extract_dharma <- function(models, model_type) {
     
     mod <- models[[nm]]
     
-    sim <- DHARMa::simulateResiduals(mod, plot = FALSE)
+    sim <- DHARMa::simulateResiduals(mod, plot = FALSE) # create desired plots outside of fx loop
     
     data.frame(
       atlas_block = data_dir[[nm]]$atlas_block,
       residual    = sim$scaledResiduals,
       model_name  = nm,
-      model_type  = model_type
+      model_type  = model_type,
+      residual_type = "DHARMa"
     )
   }))
 }
 
+
+
+### B) Pearson residuals
+extract_pearson <- function(models, model_type) {
+  
+  bind_rows(
+    
+    lapply(names(models), function(nm) {
+      
+      mod <- models[[nm]]
+      
+      data.frame(
+        atlas_block = data_dir[[nm]]$atlas_block,
+        residual    = residuals(
+          mod,
+          type = "pearson"
+        ),
+        model_name   = nm,
+        model_type   = model_type,
+        residual_type = "Pearson"
+      )
+    })
+  )
+}
+
+
+
+### C) Visualize residuals ----------------------------------------------------- Broken / Confusing?
+# C1 ) DHARMa residuals
+plot_process <- function(models, model_label, keep_pattern = "_col|_ext") {
+  
+  lapply(names(models), function(nm) {
+    
+    if (!grepl(keep_pattern, nm)) return(NULL)
+    
+    mod <- models[[nm]]
+    
+    sim <- DHARMa::simulateResiduals(mod, plot = FALSE)
+    
+    par(mfrow = c(1, 2))
+    
+    plot(sim, main = paste(model_label, nm))
+    DHARMa::plotQQunif(sim, main = paste("QQ:", model_label, nm))
+    
+    par(mfrow = c(1, 1))
+  })
+}
+
+plot_process(model_sets$true_null, "True Null")
+plot_process(model_sets$full_pa, "Full PA")
+plot_process(model_sets$localized_sac, "SAC Model") # -----------------------------
+
+
+
+
+
+### D) Wrangle, combine residuals
 
 dharma_residuals <- bind_rows(
   extract_dharma(model_sets$true_null,     "true_null"),
@@ -704,38 +962,297 @@ dharma_residuals <- bind_rows(
   extract_dharma(model_sets$localized_sac, "localized_sac")
 )
 
-
-# attach coords
-dharma_residuals <- dharma_residuals %>%
-  left_join(coords_df, by = "atlas_block")
-
-# hard safety check
-stopifnot(!any(is.na(dharma_residuals$x_km)))
-stopifnot(!any(is.na(dharma_residuals$y_km)))
+pearson_residuals <- bind_rows(
+  extract_pearson(model_sets$true_null, "true_null"),
+  extract_pearson(model_sets$pa_null, "pa_null"),
+  extract_pearson(model_sets$full_pa, "full_pa"),
+  extract_pearson(model_sets$localized_sac, "localized_sac")
+)
 
 
-# construct semivariogram
-semivar_df <- dharma_residuals %>%
+all_residuals <- bind_rows( # combine both in df ---------------------------- wrong
+  dharma_residuals,
+  pearson_residuals
+) %>%
+  left_join(
+    coords_df,
+    by = "atlas_block"
+  )
+
+#stopifnot(!any(is.na(all_residuals$x_km)))
+#stopifnot(!any(is.na(all_residuals$y_km))) # -----------------------------------
+
+
+
+all_residuals <- bind_rows( # ------------------------------------------------ new
+  dharma_residuals,
+  pearson_residuals
+) %>%
+  left_join(
+    coords_lookup,
+    by = "atlas_block"
+  )
+
+
+
+
+
+
+
+### --- TEST RESIDUAL SAC --- ###
+
+### --- A) Moran's I
+# MI+: observed nearby residuals are more similar than expected;
+# MI~0: little reamining SAC;
+# significant p-values: residual SAC present
+
+# A1) Analyze (3 weighting schemes)
+morans_results <- bind_rows(
   
-  group_by(model_type, model_name) %>%
+  lapply(unique(all_residuals$model_name), function(mn) {
+    
+    bind_rows(
+      
+      lapply(unique(all_residuals$model_type), function(mt) {
+        
+        bind_rows(
+          
+          lapply(unique(all_residuals$residual_type), function(rt) {
+            
+            dat <- all_residuals %>%
+              filter(
+                model_name == mn,
+                model_type == mt,
+                residual_type == rt
+              )
+            
+            coords <- coords_by_model[[mn]]
+            
+            dat <- dat[
+              match(coords$atlas_block,
+                    dat$atlas_block),
+            ]
+            
+            bind_rows(
+              
+              lapply(
+                names(weight_sets[[mn]]),
+                function(weight_name) {
+                  
+                  w <- weight_sets[[mn]][[weight_name]]
+                  
+                  moran_test <- spdep::moran.test(
+                    dat$residual,
+                    w,
+                    zero.policy = TRUE
+                  )
+                  
+                  data.frame(
+                    weight_type = weight_name,
+                    model_name = mn,
+                    model_type = mt,
+                    residual_type = rt,
+                    
+                    morans_I =
+                      unname(moran_test$estimate[1]),
+                    
+                    expected_I =
+                      unname(moran_test$estimate[2]),
+                    
+                    variance_I =
+                      unname(moran_test$estimate[3]),
+                    
+                    p_value =
+                      moran_test$p.value
+                  )
+                }
+              )
+            )
+          })
+        )
+      })
+    )
+  })
+)
+
+
+#nrow(morans_results)
+#dim(morans_results)
+#names(coords_by_model)
+#names(weight_sets)
+#unique(all_residuals$model_name)
+
+
+
+
+# A2) Quantitative results
+
+# A2a) Tidy
+morans_results <- morans_results %>%
+  
+  mutate(
+    
+    ### classify ecological process
+    process = case_when(
+      grepl("_col$", model_name) ~ "Colonization",
+      grepl("_ext$", model_name) ~ "Extirpation",
+      TRUE ~ "All transitions"
+    ),
+    
+    ### clean model type labels
+    model_type = factor(
+      model_type,
+      levels = c(
+        "true_null",
+        "pa_null",
+        "full_pa",
+        "localized_sac"
+      ),
+      labels = c(
+        "True Null",
+        "PA-only Model",
+        "Full Model",
+        "Full Model w SAC Term"
+      )
+    )
+  )
+
+
+# A2b) Summarize
+morans_results
+
+
+delta_morans_results <- morans_results %>%
+  
+  group_by(weight_type, residual_type, process) %>%
+  
+  mutate(
+    delta_morans_I = morans_I -
+      morans_I[model_type == "True Null"][1]
+  ) %>%
+  
+  ungroup()
+
+
+delta_summary <- delta_morans_results %>%
+  
+  group_by(weight_type, residual_type, model_type) %>%
+  
+  summarise(
+    
+    mean_delta_morans_I = mean(delta_morans_I, na.rm = TRUE),
+    sd_delta_morans_I   = sd(delta_morans_I, na.rm = TRUE),
+    min_delta           = min(delta_morans_I, na.rm = TRUE),
+    max_delta           = max(delta_morans_I, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+
+delta_morans_results
+
+
+
+# A2c) Visualize
+# Raw Moran's I
+ggplot(
+  morans_results,
+  aes(
+    x = model_type,
+    y = morans_I,
+    fill = residual_type
+  )
+) +
+  
+  geom_col(
+    position = position_dodge(
+      width = 0.8
+    )
+  ) +
+  
+  facet_grid(
+    process ~ weight_type
+  ) +
+  
+  labs(
+    title = "Residual Moran's I Across Models and Weight Structures",
+    x = NULL,
+    y = "Moran's I",
+    fill = "Residual Type"
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(
+      angle = 20,
+      hjust = 1
+    ),
+    plot.title = element_text(face = "bold")
+  )
+
+
+# Delta Moran's I
+ggplot(
+  delta_morans_results,
+  aes(
+    x = model_type,
+    y = delta_morans_I,
+    fill = residual_type
+  )
+) +
+  
+  geom_col(position = position_dodge()) +
+  
+  facet_grid(process ~ weight_type) +
+  
+  labs(
+    title = "Reduction in Spatial Autocorrelation (Δ Moran's I vs True Null)",
+    x = NULL,
+    y = "Δ Moran's I",
+    fill = "Residual type"
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  
+  theme(
+    axis.text.x = element_text(angle = 25, hjust = 1),
+    legend.position = "bottom"
+  )
+
+
+
+
+
+
+
+### --- B) Semivariance, Semivariograms
+# Quantify how residual similarity changes with distance
+# Plot interp: low semivariance at short distances = nearby blocks w similar residuals
+# = evidence of positive SAC;
+# increasing semivariance w distance = spatial structure decays across space;
+# Flat semivariogram = little remaining SAC
+
+# B1) Analysis
+semivar_df <- all_residuals %>%
+  
+  group_by(residual_type, model_type, model_name) %>%
   
   group_modify(~ {
     
     dat <- .x
     
-    # convert to spatial object
-    gdf <- sf::st_as_sf(
+    gdf <- sf::st_as_sf( # convert to spatial object
       dat,
       coords = c("x_km", "y_km"),
       crs = NA_real_
     )
     
-    # empirical variogram of residual spatial structure
-    v <- gstat::variogram(
+    v <- gstat::variogram( # define quantitative constraints
       residual ~ 1,
       locations = gdf,
-      cutoff = 300,  # km
-      width  = 25    # km bins
+      cutoff = 25,  # km max distance
+      width  = 5    # km bin width
     )
     
     as.data.frame(v)
@@ -745,10 +1262,9 @@ semivar_df <- dharma_residuals %>%
 
 
 
+# B2) Results
 
-
-
-# Visualize
+# B2a) Tidy
 semivar_df <- semivar_df %>%
   
   mutate(
@@ -768,104 +1284,24 @@ semivar_df <- semivar_df %>%
         "localized_sac"
       ),
       labels = c(
-        "True null",
-        "PA-only null",
-        "Full PA model",
-        "Localized SAC model"
+        "True Null",
+        "PA-only Model",
+        "Full Model",
+        "Full Model w SAC Term"
       )
     )
   ) %>%
   
-  arrange(model_type, model_name, dist) %>%
+  arrange(residual_type, model_type, model_name, dist) %>%
   
   filter(!is.na(gamma))
 
 
-# 0-300 km
-ggplot(
-  semivar_df,
-  aes(
-    x = dist,
-    y = gamma,
-    color = model_type,
-    group = interaction(model_type, model_name, process)
-  )
-) +
-  
-  geom_line(linewidth = 1.1, na.rm = TRUE) +
-  geom_point(size = 1.8, na.rm = TRUE) +
-  
-  facet_wrap(~process) +
-  
-  scale_color_manual(
-    values = c(
-      "True null" = "grey40",
-      "PA-only null" = "orange",
-      "Full PA model" = "turquoise4",
-      "Localized SAC model" = "purple4"
-    )
-  ) +
-  
-  labs(
-    title = "Residual Spatial Structure Across Model Types",
-    x = "Distance between blocks (km)",
-    y = "Semivariance of DHARMa residuals",
-    color = NULL
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold")
-  )
 
-
-# 0-100 km
-ggplot(
-  semivar_df %>% filter(dist <= 100),
-  aes(
-    x = dist,
-    y = gamma,
-    color = model_type,
-    group = interaction(model_type, model_name, process)
-  )
-) +
-  geom_line(linewidth = 1.1, na.rm = TRUE) +
-  geom_point(size = 1.6, na.rm = TRUE) +
-  
-  facet_wrap(~process) +
-  
-  scale_color_manual(
-    values = c(
-      "True null" = "grey40",
-      "PA-only null" = "orange",
-      "Full PA model" = "turquoise4",
-      "Localized SAC model" = "purple4"
-    )
-  ) +
-  
-  labs(
-    title = "Residual Spatial Structure (0–100 km)",
-    x = "Distance between blocks (km)",
-    y = "Semivariance of DHARMa residuals",
-    color = NULL
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-
-
-# Summarize semivariance
+# B2b) Summarize
 semivar_summary <- semivar_df %>%
   
-  group_by(process, model_type) %>%
+  group_by(residual_type, process, model_type) %>%
   
   summarise(
     
@@ -885,266 +1321,40 @@ semivar_summary <- semivar_df %>%
     .groups = "drop"
   )
 
-
 semivar_summary
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-############################################################## NEW W/ DHAARMa, SEMIVARIOGRAMS
-
-### DATA ###
-### Join raw projected lat, lon to data
-
-data_dir_coords <- lapply(names(data_dir), function(nm) {
-  
-  dat <- data_dir[[nm]]
-  
-  dat <- dat %>%
-    dplyr::left_join(
-      covars_raw_rll %>%
-        dplyr::select(atlas_block, lon_raw = lon, lat_raw = lat),
-      by = "atlas_block"
-    ) %>%
-    dplyr::mutate(
-      x_km = as.numeric(lon_raw) / 1000,
-      y_km = as.numeric(lat_raw) / 1000
-    ) %>%
-    dplyr::filter(!is.na(x_km), !is.na(y_km))
-  
-  dat
-})
-
-names(data_dir_coords) <- names(data_dir)
-
-
-### Coords df
-block_centroids_df <- covars_raw_rll %>%
-  dplyr::select(atlas_block, lon, lat) %>%
-  distinct() %>%
-  mutate(
-    x_km = lon / 1000,
-    y_km = lat / 1000
-  )
-
-
-block_centroids <- blocks_all_sf %>%
-  st_centroid() %>%
-  mutate(
-    lon = st_coordinates(.)[,1],
-    lat = st_coordinates(.)[,2],
-    x_km = lon / 1000,
-    y_km = lat / 1000
-  ) %>%
-  st_drop_geometry() %>%
-  dplyr::select(atlas_block, lon, lat, x_km, y_km)
-
-
-
-
-
-### --- SPATIAL AUTOCORRELATION --- ###
-
-# Goals:
-# 1) Fit null + full PA models
-# 2) Extract DHARMa standardized quantile residuals
-# 3) Build semivariograms from DHARMa residuals
-
-
-### TRUE NULL, PA NULL, FULL MODEL COMPARISON ###
-
-# Helper: extract response variable name
-GetResponseName <- function(model_name) {
-  strsplit(model_name, "_")[[1]][2]
-}
-
-
-
-### TRUE NULL (response ~ 1)
-pa_true_null_models <- lapply(names(pa_glm_models), function(nm) {
-  
-  response <- GetResponseName(nm)
-  
-  glm(
-    as.formula(paste(response, "~ 1")),
-    data = data_dir[[nm]],
-    family = binomial
-  )
-})
-
-names(pa_true_null_models) <- names(pa_glm_models)
-
-
-
-### PA-ONLY NULL (response ~ pa_prop)
-pa_paonly_models <- lapply(names(pa_glm_models), function(nm) {
-  
-  response <- GetResponseName(nm)
-  
-  glm(
-    as.formula(paste(response, "~ pa_prop")),
-    data = data_dir[[nm]],
-    family = binomial
-  )
-})
-
-names(pa_paonly_models) <- names(pa_glm_models)
-
-
-
-### FULL MODEL (response ~ pa_prop + env, etc. covariates)
-pa_full_models <- pa_glm_models
-
-
-
-
-
-### EXTRACT, MAP DHARMa RESIDUALS ###
-set.seed(123)
-
-model_sets <- list(
-  true_null = pa_true_null_models,
-  pa_null   = pa_paonly_models,
-  full      = pa_full_models
-)
-
-
-dharma_residuals <- lapply(names(model_sets), function(set_name) {
-  
-  models <- model_sets[[set_name]]
-  
-  out <- lapply(names(models), function(nm) {
-    
-    sim <- simulateResiduals(
-      fittedModel = models[[nm]],
-      plot = FALSE
-    )
-    
-    data.frame(
-      atlas_block = data_dir_coords[[nm]]$atlas_block,
-      x_km = data_dir_coords[[nm]]$x_km,
-      y_km = data_dir_coords[[nm]]$y_km,
-      residual = sim$scaledResiduals,
-      species_model = nm,
-      model_type = set_name
-    )
-  })
-  
-  bind_rows(out)
-})
-
-dharma_residuals <- bind_rows(dharma_residuals)
-
-
-
-
-
-### SEMIVARIOGRTAMS ###
-
-semivar_df <- dharma_residuals %>%
-  
-  group_by(species_model, model_type) %>%
-  
-  group_modify(~ {
-    
-    dat <- .x
-    
-    coordinates <- dat[, c("x_km", "y_km")]
-    
-    gdf <- sf::st_as_sf(
-      dat,
-      coords = c("x_km", "y_km"),
-      crs = 3071
-    )
-    
-    vgm_obj <- gstat::variogram(
-      residual ~ 1,
-      locations = gdf,
-      cutoff = 300,
-      width = 25
-    )
-    
-    as.data.frame(vgm_obj)
-    
-  }) %>%
-  
-  ungroup()
-
-
-
-### PLOT ###
-
-# Tidy
-semivar_df <- semivar_df %>%
-  
-  mutate(
-    
-    process = case_when(
-      grepl("_col$", species_model) ~ "Colonization",
-      grepl("_ext$", species_model) ~ "Extirpation"
-    ),
-    
-    model_type = factor(
-      model_type,
-      levels = c("true_null", "pa_null", "full"),
-      labels = c(
-        "True null",
-        "PA-only null",
-        "Full model"
-      )
-    )
-  )
-
-
-
-# Plot
+# B2c) Visualize
+# Full distance (see above, cutoff = )
 ggplot(
   semivar_df,
-  aes(x = dist, y = gamma, color = model_type)
+  aes(
+    x = dist,
+    y = gamma,
+    color = model_type,
+    group = interaction(model_type, model_name, process)
+  )
 ) +
   
-  geom_line(linewidth = 1.2) +
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  geom_point(size = 1.8, na.rm = TRUE) +
   
-  geom_point(size = 2) +
-  
-  facet_wrap(~process) +
+  facet_grid(residual_type ~ process) +
   
   scale_color_manual(
     values = c(
-      "True null" = "grey40",
-      "PA-only null" = "orange",
-      "Full model" = "turquoise4"
+      "True Null" = "grey40",
+      "PA-only Model" = "orange",
+      "Full Model" = "turquoise4",
+      "Full Model w SAC Term" = "darkorchid"
     )
   ) +
   
   labs(
     title = "Residual Spatial Structure Across Model Types",
-    x = "Distance (km)",
-    y = "Semivariance",
+    x = "Distance Between Blocks (km)",
+    y = "Semivariance of DHARMa Residuals",
     color = NULL
   ) +
   
@@ -1156,25 +1366,200 @@ ggplot(
   )
 
 
-
-# Summarize
-
-semivar_summary <- semivar_df %>%
+# Zoom/Clipped distance
+ggplot(
+  semivar_df %>% filter(dist <= 25), # set max distance
+  aes(
+    x = dist,
+    y = gamma,
+    color = model_type,
+    group = interaction(model_type, model_name, process)
+  )
+) +
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  geom_point(size = 1.6, na.rm = TRUE) +
   
-  group_by(process, model_type) %>%
+  facet_wrap(~process) +
+  
+  scale_color_manual(
+    values = c(
+      "True Null" = "grey40",
+      "PA-only Model" = "orange",
+      "Full Model" = "turquoise4",
+      "Full Model w SAC Term" = "darkorchid"
+    )
+  ) +
+  
+  labs(
+    title = "Residual Spatial Structure (0–25 km)",
+    x = "Distance between blocks (km)",
+    y = "Semivariance of DHARMa residuals",
+    color = NULL
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+
+# B3) Summarize pairwise binning
+
+### np = number of pairwise comparisons contributing to each
+# semivariance estimate.
+# Important because unstable bins with few comparisons can produce
+# noisy semivariance estimates.
+
+# B3a) Analyze
+pairs_summary <- semivar_df %>%
+  
+  filter(
+    model_type == "Full Model"
+  ) %>%
+  
+  group_by(process) %>%
   
   summarise(
-    mean_semivariance = mean(gamma, na.rm = TRUE),
-    max_semivariance = max(gamma, na.rm = TRUE),
+    
+    mean_pairs =
+      mean(np, na.rm = TRUE),
+    
+    min_pairs =
+      min(np, na.rm = TRUE),
+    
+    max_pairs =
+      max(np, na.rm = TRUE),
+    
+    range_pairs =
+      max(np, na.rm = TRUE) -
+      min(np, na.rm = TRUE),
+    
+    sd_pairs =
+      sd(np, na.rm = TRUE),
+    
     .groups = "drop"
   )
 
-semivar_summary
+pairs_summary
+
+
+# B3b) Tidy
+pair_bins_summary <- semivar_df %>%
+  
+  filter(
+    model_type == "Full Model"
+  ) %>%
+  
+  dplyr::select(
+    process,
+    dist,
+    np
+  ) %>%
+  
+  distinct() %>%
+  
+  arrange(process, dist)
+
+pair_bins_summary
+
+
+# B3c) Visualize
+ggplot(
+  pair_bins_summary,
+  aes(
+    x = dist,
+    y = np
+  )
+) +
+  
+  geom_line(linewidth = 1.1) +
+  
+  geom_point(size = 2) +
+  
+  facet_wrap(~process, scales = "free_y") +
+  
+  labs(
+    title = "Pairwise Comparisons per Distance Bin",
+    x = "Distance Bin (km)",
+    y = "Number of Pairs"
+  ) +
+  
+  theme_minimal(base_size = 13)
+
+
+
+#### Overall SAC Reduction ###
+# SACRI: SAC reduction index; SACRI = MoransI from fitted model / MoransI from null model
+# ---> how much residual SAC did a covariate term remove?
+
+baseline_I <- morans_results %>%
+  
+  filter(model_type == "True Null") %>%
+  
+  group_by(residual_type, weight_type) %>%
+  
+  summarise(
+    I0 = mean(morans_I, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+srei_results <- morans_results %>%
+  
+  left_join(baseline_I,
+            by = c("residual_type", "weight_type")) %>%
+  
+  mutate(
+    SREI = 1 - (morans_I / I0)
+  )
+
+
+srei_summary <- srei_results %>%
+  
+  group_by(model_type, weight_type) %>%
+  
+  summarise(
+    mean_SREI = mean(SREI, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+
+ggplot(srei_summary,
+       aes(x = model_type, y = mean_SREI, fill = weight_type)) +
+  
+  geom_col(position = position_dodge(width = 0.8)) +
+  
+  labs(
+    title = "Spatial Autocorrelation Reduction Efficiency Index (SREI)",
+    y = "SREI (1 - I_model / I_null)",
+    x = NULL
+  ) +
+  
+  theme_minimal(base_size = 13)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ################################################################################
-################# SMOOTH LATENT SPATIAL PROCESS ################################
+################# FOSSILS ######################################################
+################################################################################
 
+
+
+
+################# SMOOTH LATENT SPATIAL PROCESS
 
 ### Fit SAC-smoothing GAM and compare fit, residuals with GLM
 

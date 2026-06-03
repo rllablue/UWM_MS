@@ -522,10 +522,61 @@ data_dir_sac <- lapply(
 )
 
 
+# B) Fit, index comparison models
+# Helper: Extract response name
+GetResponseName <- function(model_name) {
+  
+  strsplit(model_name, "_")[[1]][2]
+}
 
-# B) Fit SAC term models
-### append term to best full models from previous script, i.e. pa_glm_models
-pa_sac_glm_models <- lapply(
+
+# B1) Null models
+null_models <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+    
+    response <- GetResponseName(nm)
+    
+    glm(
+      as.formula(
+        paste(response, "~ 1")
+      ),
+      data   = data_dir[[nm]],
+      family = binomial
+    )
+  }
+)
+
+names(null_models) <- names(pa_glm_models)
+
+
+# B2) PA-only models
+paonly_models <- lapply(
+  names(pa_glm_models),
+  function(nm) {
+    
+    response <- GetResponseName(nm)
+    
+    glm(
+      as.formula(
+        paste(response, "~ pa_prop")
+      ),
+      data   = data_dir[[nm]],
+      family = binomial
+    )
+  }
+)
+
+names(paonly_models) <- names(pa_glm_models)
+
+
+# B3) Full environmental-PA models: pa_glm_models
+envpa_models <- pa_glm_models
+
+
+# C) Fit model w SAC term
+### append term to best full models from previous script (pa_glm_models)
+sac_envpa_models <- lapply(
   names(pa_glm_models),
   function(nm) {
 
@@ -540,15 +591,20 @@ pa_sac_glm_models <- lapply(
   }
 )
 
-names(pa_sac_glm_models) <- names(pa_glm_models) 
+names(sac_envpa_models) <- names(pa_glm_models) 
 
-pa_sac_glm_summaries <- lapply(pa_sac_glm_models, summary)
-pa_sac_glm_summaries
 
+# A5) Index models
+model_sets <- list(
+  null_models,
+  paonly_models,
+  envpa_models,
+  sac_envpa_models
+)
 
 
 # C) Model comparison
-### compare best full mode and sac-term fitted mod
+### fit and outputs (coefficients, etc.) among null, pa-only, env-pa, and sac-env-pa models
 
 mcfadden_r2 <- function(model, null_model) {
   
@@ -559,55 +615,402 @@ mcfadden_r2 <- function(model, null_model) {
 }
 
 
-pa_sac_model_comparison <- lapply(
+model_set_comparison <- lapply(
   names(pa_glm_models),
   function(nm) {
     
-    base_mod <- pa_glm_models[[nm]]
-    sac_mod  <- pa_sac_glm_models[[nm]]
-    null_mod <- pa_true_null_models[[nm]]
+    # model object definitions
+    null_mod  <- null_models[[nm]]
+    paonly_mod    <- paonly_models[[nm]]
+    envpa_mod  <- envpa_models[[nm]]
+    sac_envpa_mod   <- sac_envpa_models[[nm]]
     
-    r2_base <- mcfadden_r2(base_mod, null_mod)
-    r2_sac  <- mcfadden_r2(sac_mod, null_mod)
+    models = list( # labels
+      Null_Model = null_mod,
+      PAOnly_Model = paonly_mod,
+      EnvPA_Model = envpa_mod,
+      SAC_EnvPA_Model = sac_envpa_mod
+    )
     
-    data.frame(
-      model = c(
-        "Full_PA_Model",
-        "Full_SAC_Model"
-      ),
+   # fit-summaries per model object 
+    model_details <- lapply(models, function(mod) {
+      list(
+        fit     = mod,
+        summary = summary(mod),
+        glance  = broom::glance(mod),
+        tidy    = broom::tidy(mod)
+      )
+    })
+    
+    # helper: mcfadden r2
+    mcfadden_wrapper <- function(mod, null) {
+      tryCatch(
+        mcfadden_r2(mod, null),
+        error = function(e) NA_real_
+      )
+    }
+
+    
+   comparison <- data.frame(
+      model = names(models),
       
-      AICc = c(
-        MuMIn::AICc(base_mod),
-        MuMIn::AICc(sac_mod)
-      ),
-      
-      delta_AICc = c(
-        0,
-        MuMIn::AICc(sac_mod) - MuMIn::AICc(base_mod)
-      ),
+      AICc = sapply(models, MuMIn::AICc),
       
       deviance_explained = c(
-        1 - (base_mod$deviance / base_mod$null.deviance),
-        1 - (sac_mod$deviance  / sac_mod$null.deviance)
+        1 - (null_mod$deviance / null_mod$null.deviance),
+        1 - (paonly_mod$deviance  / paonly_mod$null.deviance),
+        1 - (envpa_mod$deviance / envpa_mod$null.deviance),
+        1 - (sac_envpa_mod$deviance / sac_envpa_mod$null.deviance)
       ),
       
-      mcfadden_R2 = c(
-        r2_base,
-        r2_sac
-      ),
-      
-      delta_mcfadden_R2 = c(
+      mcfadden_R2v_null = c(
         0,
-        r2_sac - r2_base
+        mcfadden_wrapper(paonly_mod, null_mod),
+        mcfadden_wrapper(envpa_mod, null_mod),
+        mcfadden_wrapper(sac_envpa_mod, null_mod)
       )
+    )
+    
+    # deltas AICc, R2 relative to envpa_mod
+    comparison$delta_AICc <- comparison$AICc - comparison$AICc[comparison$model == "EnvPA_Model"]
+    comparison$delta_mcfadden_R2 <- comparison$mcfadden_R2 - comparison$mcfadden_R2[comparison$model == "EnvPA_Model"]
+    
+    list(
+      models = model_details,
+      comparison_table = comparison
     )
   }
 )
+    
 
-names(pa_sac_model_comparison) <- names(pa_glm_models)
+names(model_set_comparison) <- names(pa_glm_models)
+model_set_comparison
 
-pa_sac_model_comparison
 
+
+# D) Visualize 
+# pivot to long df
+
+# Figure 1: Comparison metrics
+
+comparison_df <- bind_rows(
+  lapply(model_set_comparison, function(x) {
+    x$comparison_table
+  }),
+  .id = "response"
+)
+
+
+comparison_long <- comparison_df %>%
+  tidyr::pivot_longer(
+    cols = c(delta_AICc, deviance_explained, mcfadden_R2v_null),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = dplyr::recode(metric,
+                           delta_AICc = "Δ AICc",
+                           deviance_explained = "Deviance Explained",
+                           mcfadden_R2v_null = "McFadden R²"
+    )
+  )
+
+
+label_size <- 4
+label_fontface <- "bold"
+
+ggplot(comparison_long, aes(x = model, y = value)) +
+  
+  geom_col(aes(fill = model), show.legend = FALSE) +
+  
+  geom_text(
+    aes(label = round(value, 3)),
+    position = position_stack(vjust = 0.5),  # <- centers text in bar
+    size = label_size,
+    fontface = label_fontface,
+    color = "black"  # improves contrast inside bars
+  ) +
+  
+  facet_grid(metric ~ response, scales = "free_y") +
+  
+  theme_minimal() +
+  
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold", size = 10)
+  ) +
+  
+  labs(
+    x = NULL,
+    y = "Value"
+  )
+
+
+
+
+# Figure 2:  PA response curves
+MakeCurve <- function(model,
+                      focal_var,
+                      data,
+                      model_name = NULL,
+                      response_name = NULL,
+                      n = 100) {
+  
+  mf <- model.frame(model)
+  vars <- all.vars(formula(model))[-1]
+  
+  base_vals <- lapply(vars, function(v) {
+    
+    if (v == focal_var) return(NULL)
+    
+    if (is.numeric(mf[[v]])) {
+      median(mf[[v]], na.rm = TRUE)
+    } else {
+      names(which.max(table(mf[[v]])))
+    }
+  })
+  
+  base_vals <- base_vals[!sapply(base_vals, is.null)]
+  
+  nd <- as.data.frame(base_vals)
+  nd <- nd[rep(1, n), ]
+  
+  nd[[focal_var]] <- seq(
+    min(mf[[focal_var]], na.rm = TRUE),
+    max(mf[[focal_var]], na.rm = TRUE),
+    length.out = n
+  )
+  
+  pred <- predict(model, newdata = nd, type = "link", se.fit = TRUE)
+  
+  tibble::tibble(
+    x = nd[[focal_var]],
+    fit = plogis(pred$fit),
+    lwr = plogis(pred$fit - 1.96 * pred$se.fit),
+    upr = plogis(pred$fit + 1.96 * pred$se.fit),
+    model = model_name,
+    response = response_name
+  )
+}
+
+
+
+pa_curve_df <- bind_rows(
+  
+  # Colonization
+  MakeCurve(
+    envpa_models$RLL_col,
+    focal_var = "pa_prop",
+    data = data_dir$RLL_col,
+    model_name = "Env + PA",
+    response_name = "Colonization"
+  ),
+  
+  MakeCurve(
+    sac_envpa_models$RLL_col,
+    focal_var = "pa_prop",
+    data = data_dir$RLL_col,
+    model_name = "SAC + Env + PA",
+    response_name = "Colonization"
+  ),
+  
+  # Extinction
+  MakeCurve(
+    envpa_models$RLL_ext,
+    focal_var = "pa_prop",
+    data = data_dir$RLL_ext,
+    model_name = "Env + PA",
+    response_name = "Extinction"
+  ),
+  
+  MakeCurve(
+    sac_envpa_models$RLL_ext,
+    focal_var = "pa_prop",
+    data = data_dir$RLL_ext,
+    model_name = "SAC + Env + PA",
+    response_name = "Extinction"
+  )
+)
+
+
+
+ggplot(pa_curve_df, aes(x = x, y = fit, color = model, fill = model)) +
+  
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.15, color = NA) +
+  
+  geom_line(linewidth = 1) +
+  
+  facet_wrap(~response) +
+  
+  scale_x_continuous(labels = scales::percent) +
+  
+  labs(
+    x = "Protected Area",
+    y = "Predicted Probability",
+    title = "Marginal PA Response (Comparable Model Structures Only)"
+  ) +
+  
+  theme_minimal()
+
+
+
+
+# Figure 3: SAC response curves
+sac_term_col <- "kernel_connectivity_std"
+sac_term_ext <- "kernel_connectivity_std"
+
+
+
+sac_curve_df <- bind_rows(
+  
+  MakeCurve(
+    sac_envpa_models$RLL_col,
+    sac_term_col,
+    data_dir$RLL_col
+  ) %>% mutate(
+    response="Colonization"
+  ),
+  
+  MakeCurve(
+    sac_envpa_models$RLL_ext,
+    sac_term_ext,
+    data_dir$RLL_ext
+  ) %>% mutate(
+    response="Extinction"
+  )
+)
+
+
+ggplot(
+  sac_curve_df,
+  aes(
+    x = x,
+    y = fit
+  )
+) +
+  
+  geom_ribbon(
+    aes(
+      ymin=lwr,
+      ymax=upr
+    ),
+    alpha=.2
+  ) +
+  
+  geom_line(
+    linewidth=1
+  ) +
+  
+  facet_wrap(
+    ~response,
+    scales="free_x"
+  ) +
+  
+  theme_minimal() +
+  
+  labs(
+    title="Spatial Autocorrelation Effect",
+    x="SAC Covariate",
+    y="Predicted Probability"
+  )
+
+
+
+# Figure 4: PA, SAC coefficient comparison
+
+coef_df <- bind_rows(
+  
+  broom::tidy(paonly_models$RLL_col,
+              conf.int=TRUE) %>%
+    mutate(
+      model="PAOnly",
+      response="Colonization"
+    ),
+  
+  broom::tidy(envpa_models$RLL_col,
+              conf.int=TRUE) %>%
+    mutate(
+      model="EnvPA",
+      response="Colonization"
+    ),
+  
+  broom::tidy(sac_envpa_models$RLL_col,
+              conf.int=TRUE) %>%
+    mutate(
+      model="SAC_EnvPA",
+      response="Colonization"
+    ),
+  
+  broom::tidy(paonly_models$RLL_ext,
+              conf.int=TRUE) %>%
+    mutate(
+      model="PAOnly",
+      response="Extinction"
+    ),
+  
+  broom::tidy(envpa_models$RLL_ext,
+              conf.int=TRUE) %>%
+    mutate(
+      model="EnvPA",
+      response="Extinction"
+    ),
+  
+  broom::tidy(sac_envpa_models$RLL_ext,
+              conf.int=TRUE) %>%
+    mutate(
+      model="SAC_EnvPA",
+      response="Extinction"
+    )
+)
+
+
+coef_df <- coef_df %>%
+  filter(
+    term %in% c(
+      "pa_prop",
+      sac_term_col
+    )
+  )
+
+
+
+ggplot(
+  coef_df,
+  aes(
+    x = estimate,
+    y = model,
+    color = model
+  )
+) +
+  
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed"
+  ) +
+  
+  geom_errorbarh(
+    aes(
+      xmin = conf.low,
+      xmax = conf.high
+    ),
+    height = .2
+  ) +
+  
+  geom_point(
+    size = 3
+  ) +
+  
+  facet_grid(
+    response ~ term
+  ) +
+  
+  theme_minimal() +
+  
+  labs(
+    x = "Coefficient",
+    y = NULL,
+    title = "PA and SAC Effect Sizes"
+  )
 
 
 
@@ -639,74 +1042,13 @@ pa_sac_model_comparison
 # 5) If needed, autoregressive/spatial model approach
 
 
-### --- WRANGLE DATA, CONSTRUCT MODELS --- ###
-
-### A) Define model hierarchies
-# Null, PA-only, Full-PA, SAC models
-
-# Helper: Extract response name
-GetResponseName <- function(model_name) {
-  
-  strsplit(model_name, "_")[[1]][2]
-}
-
-# A1) Null models
-pa_true_null_models <- lapply(
-  names(pa_glm_models),
-  function(nm) {
-    
-    response <- GetResponseName(nm)
-    
-    glm(
-      as.formula(
-        paste(response, "~ 1")
-      ),
-      data   = data_dir[[nm]],
-      family = binomial
-    )
-  }
-)
-
-names(pa_true_null_models) <- names(pa_glm_models)
-
-
-# A2) PA-only models
-pa_paonly_models <- lapply(
-  names(pa_glm_models),
-  function(nm) {
-    
-    response <- GetResponseName(nm)
-    
-    glm(
-      as.formula(
-        paste(response, "~ pa_prop")
-      ),
-      data   = data_dir[[nm]],
-      family = binomial
-    )
-  }
-)
-
-names(pa_paonly_models) <- names(pa_glm_models)
-
-
-# A3) Full-PA models
-pa_full_models <- pa_glm_models
-
-
-# A4) SAC models
-pa_localized_sac_models <- pa_sac_glm_models
-
-
-# A5) Combine, index models
-model_sets <- list(
-  
-  true_null     = pa_true_null_models,
-  pa_null       = pa_paonly_models,
-  full_pa       = pa_full_models,
-  localized_sac = pa_localized_sac_models
-)
-
+# Indexed models
+#model_sets <- list(
+#  null_models,
+#  paonly_models,
+#  envpa_models,
+#  sac_envpa_models
+#)
 
 
 ### --- SPATIAL STRUCTURES --- ###
@@ -731,20 +1073,19 @@ coords_by_model <- lapply( # partition blocks
     
     blocks <- data_dir[[nm]]$atlas_block
     
-    coords <- coords_lookup %>%
-      filter(atlas_block %in% blocks)
-    
-    coords[
-      match(blocks, coords$atlas_block),
-    ]
-    
-  }
-)
+    coords_lookup %>%
+      filter(atlas_block %in% blocks) %>%
+      right_join(
+        tibble(atlas_block = blocks),
+        by = "atlas_block"
+      ) %>%
+      arrange(match(atlas_block, blocks))
+  })
 
 names(coords_by_model) <- names(pa_glm_models)
 
 
-distance_matrices <- lapply( # create response-specific centroids
+distance_matrices <- lapply( # response-specific centroid matrices
   coords_by_model,
   function(coords) {
     
@@ -755,7 +1096,6 @@ distance_matrices <- lapply( # create response-specific centroids
     )
     
     diag(d) <- NA_real_
-    
     d
   }
 )
@@ -765,11 +1105,9 @@ distance_matrices <- lapply( # create response-specific centroids
 # within max dispersal distance
 neighbor_matrices <- lapply(
   distance_matrices,
-  function(dist_matrix) {
+  function(dmat) {
     
-    !is.na(dist_matrix) &
-      dist_matrix <= max_disp_km
-    
+    !is.na(dmat) & dmat <= max_disp_km
   }
 )
 
@@ -781,42 +1119,40 @@ neighbor_matrices <- lapply(
 
 ### C1) Binary adjacency weights
 # all neighbors influence equally
-binary_weights <- lapply(
-  neighbor_matrices,
-  function(neighbor_matrix) {
-    
-    spdep::mat2listw(
-      neighbor_matrix * 1,
-      style = "W",
-      zero.policy = TRUE
-    )
-    
-  }
-)
+binary_weights <- lapply(names(neighbor_matrices), function(nm) {
+  
+  mat <- neighbor_matrices[[nm]] * 1  # convert TRUE/FALSE → 1/0
+  
+  spdep::mat2listw(
+    mat,
+    style = "W",
+    zero.policy = TRUE
+  )
+})
+
+names(binary_weights) <- names(neighbor_matrices)
 
 
 ### C2) IDW spatial weights 
 # nearby neighbors influence more than faraway neighbors
-idw_weights <- lapply(
-  names(distance_matrices),
-  function(nm) {
-    
-    dist_matrix <- distance_matrices[[nm]]
-    
-    idw_matrix <- 1 / dist_matrix
-    
-    idw_matrix[
-      !neighbor_matrices[[nm]]
-    ] <- 0
-    
-    spdep::mat2listw(
-      idw_matrix,
-      style = "W",
-      zero.policy = TRUE
-    )
-    
-  }
-)
+idw_weights <- lapply(names(distance_matrices), function(nm) {
+  
+  dmat <- distance_matrices[[nm]]
+  
+  idw <- ifelse(
+    dmat > 0 & !is.na(dmat),
+    1 / dmat,
+    0
+  )
+  
+  idw[!neighbor_matrices[[nm]]] <- 0
+  
+  spdep::mat2listw(
+    idw,
+    style = "W",
+    zero.policy = TRUE
+  )
+})
 
 names(idw_weights) <- names(distance_matrices)
 
@@ -827,47 +1163,46 @@ names(idw_weights) <- names(distance_matrices)
 # block, then creating covariate to model
 # from residual assessment, need to understand all existing spatial clustering 
 # (though still confined within max dispersal distance), regardless of previous occupancy
-gaussian_weights <- lapply(
-  names(distance_matrices),
-  function(nm) {
-    
-    dist_matrix <- distance_matrices[[nm]]
-    
-    kernel_matrix <- exp(
-      -(dist_matrix^2) /
-        (2 * sigma_km^2)
-    )
-    
-    kernel_matrix[
-      !neighbor_matrices[[nm]]
-    ] <- 0
-    
-    spdep::mat2listw(
-      kernel_matrix,
-      style = "W",
-      zero.policy = TRUE
-    )
-    
+gaussian_weights <- lapply(names(distance_matrices), function(nm) {
+  
+  dmat <- distance_matrices[[nm]]
+  
+  k <- exp(-(dmat^2) / (2 * sigma_km^2))
+  k[!neighbor_matrices[[nm]]] <- 0
+  
+  row_sums <- rowSums(k, na.rm = TRUE)
+  
+  # preserve matrix structure explicitly
+  for (i in seq_len(nrow(k))) {
+    if (row_sums[i] > 0) {
+      k[i, ] <- k[i, ] / row_sums[i]
+    } else {
+      k[i, ] <- 0
+    }
   }
-)
+  
+  k[is.na(k)] <- 0
+  
+  spdep::mat2listw(
+    k,
+    style = "W",
+    zero.policy = TRUE
+  )
+})
 
 names(gaussian_weights) <- names(distance_matrices)
 
 
 
 ### C4) Index weight sets
-weight_sets <- lapply(
-  names(pa_glm_models),
-  function(nm) {
-    
-    list(
-      binary   = binary_weights[[nm]],
-      idw      = idw_weights[[nm]],
-      gaussian = gaussian_weights[[nm]]
-    )
-    
-  }
-)
+weight_sets <- lapply(names(pa_glm_models), function(nm) {
+  
+  list(
+    binary   = binary_weights[[nm]],
+    idw      = idw_weights[[nm]],
+    gaussian = gaussian_weights[[nm]]
+  )
+})
 
 names(weight_sets) <- names(pa_glm_models)
 
@@ -881,110 +1216,67 @@ set.seed(123)
 
 extract_dharma <- function(models, model_type) {
   
+  stopifnot(length(models) > 0)
+  
   bind_rows(lapply(names(models), function(nm) {
     
     mod <- models[[nm]]
+    sim <- DHARMa::simulateResiduals(mod, plot = FALSE)
     
-    sim <- DHARMa::simulateResiduals(mod, plot = FALSE) # create desired plots outside of fx loop
-    
-    data.frame(
-      atlas_block = data_dir[[nm]]$atlas_block,
-      residual    = sim$scaledResiduals,
-      model_name  = nm,
-      model_type  = model_type,
+    tibble(
+      atlas_block   = data_dir[[nm]]$atlas_block,
+      residual      = sim$scaledResiduals,
+      model_name    = nm,
+      model_type    = model_type,
       residual_type = "DHARMa"
     )
   }))
 }
 
 
-
 ### B) Pearson residuals
 extract_pearson <- function(models, model_type) {
   
-  bind_rows(
-    
-    lapply(names(models), function(nm) {
-      
-      mod <- models[[nm]]
-      
-      data.frame(
-        atlas_block = data_dir[[nm]]$atlas_block,
-        residual    = residuals(
-          mod,
-          type = "pearson"
-        ),
-        model_name   = nm,
-        model_type   = model_type,
-        residual_type = "Pearson"
-      )
-    })
-  )
-}
-
-
-
-### C) Visualize residuals ----------------------------------------------------- Broken / Confusing?
-# C1 ) DHARMa residuals
-plot_process <- function(models, model_label, keep_pattern = "_col|_ext") {
-  
-  lapply(names(models), function(nm) {
-    
-    if (!grepl(keep_pattern, nm)) return(NULL)
+  bind_rows(lapply(names(models), function(nm) {
     
     mod <- models[[nm]]
     
-    sim <- DHARMa::simulateResiduals(mod, plot = FALSE)
-    
-    par(mfrow = c(1, 2))
-    
-    plot(sim, main = paste(model_label, nm))
-    DHARMa::plotQQunif(sim, main = paste("QQ:", model_label, nm))
-    
-    par(mfrow = c(1, 1))
-  })
+    tibble(
+      atlas_block   = data_dir[[nm]]$atlas_block,  # ← same fix here
+      residual      = residuals(mod, type = "pearson"),
+      model_name    = nm,
+      model_type    = model_type,
+      residual_type = "Pearson"
+    )
+  }))
 }
 
-plot_process(model_sets$true_null, "True Null")
-plot_process(model_sets$full_pa, "Full PA")
-plot_process(model_sets$localized_sac, "SAC Model") # -----------------------------
 
+### C) Combine residuals
+model_sets <- list(
+  null_mod      = null_models,
+  paonly_mod    = paonly_models,
+  envpa_mod     = envpa_models,
+  sac_envpa_mod = sac_envpa_models
+)
 
-
-
-
-### D) Wrangle, combine residuals
 
 dharma_residuals <- bind_rows(
-  extract_dharma(model_sets$true_null,     "true_null"),
-  extract_dharma(model_sets$pa_null,       "pa_null"),
-  extract_dharma(model_sets$full_pa,       "full_pa"),
-  extract_dharma(model_sets$localized_sac, "localized_sac")
+  extract_dharma(model_sets$null_mod,     "true_null"),
+  extract_dharma(model_sets$paonly_mod,       "pa_only"),
+  extract_dharma(model_sets$envpa_mod,       "env_pa"),
+  extract_dharma(model_sets$sac_envpa_mod, "local_sac")
 )
 
 pearson_residuals <- bind_rows(
-  extract_pearson(model_sets$true_null, "true_null"),
-  extract_pearson(model_sets$pa_null, "pa_null"),
-  extract_pearson(model_sets$full_pa, "full_pa"),
-  extract_pearson(model_sets$localized_sac, "localized_sac")
+  extract_pearson(model_sets$null_mod, "true_null"),
+  extract_pearson(model_sets$paonly_mod, "pa_only"),
+  extract_pearson(model_sets$envpa_mod, "env_pa"),
+  extract_pearson(model_sets$sac_envpa_mod, "local_sac")
 )
 
 
-all_residuals <- bind_rows( # combine both in df ---------------------------- wrong
-  dharma_residuals,
-  pearson_residuals
-) %>%
-  left_join(
-    coords_df,
-    by = "atlas_block"
-  )
-
-#stopifnot(!any(is.na(all_residuals$x_km)))
-#stopifnot(!any(is.na(all_residuals$y_km))) # -----------------------------------
-
-
-
-all_residuals <- bind_rows( # ------------------------------------------------ new
+all_residuals <- bind_rows(
   dharma_residuals,
   pearson_residuals
 ) %>%
@@ -994,22 +1286,33 @@ all_residuals <- bind_rows( # ------------------------------------------------ n
   )
 
 
+all_residuals <- all_residuals %>%
+  mutate(
+    model_type = case_when(
+      model_type %in% c("true_null") ~ "true_null",
+      model_type %in% c("pa_only") ~ "pa_only",
+      model_type %in% c("env_pa") ~ "env_pa",
+      model_type %in% c("local_sac", "SAC_EnvPA_Model", "sac_envpa") ~ "local_sac",
+      TRUE ~ model_type
+    )
+  )
 
 
 
-
-
-### --- TEST RESIDUAL SAC --- ###
+### --- TEST MODEL RESIDUALS --- ###
 
 ### --- A) Moran's I
 # MI+: observed nearby residuals are more similar than expected;
 # MI~0: little reamining SAC;
 # significant p-values: residual SAC present
 
+model_names <- names(weight_sets)
+
+
 # A1) Analyze (3 weighting schemes)
 morans_results <- bind_rows(
   
-  lapply(unique(all_residuals$model_name), function(mn) {
+  lapply(model_names, function(mn) {
     
     bind_rows(
       
@@ -1028,45 +1331,35 @@ morans_results <- bind_rows(
             
             coords <- coords_by_model[[mn]]
             
-            dat <- dat[
-              match(coords$atlas_block,
-                    dat$atlas_block),
-            ]
+            # --- strict alignment ---
+            dat <- dat %>%
+              right_join(
+                tibble(atlas_block = coords$atlas_block),
+                by = "atlas_block"
+              ) %>%
+              arrange(match(atlas_block, coords$atlas_block)) %>%
+              filter(!is.na(residual))
+            
+            stopifnot(length(dat$residual) == length(coords$atlas_block))
             
             bind_rows(
-              
-              lapply(
-                names(weight_sets[[mn]]),
-                function(weight_name) {
-                  
-                  w <- weight_sets[[mn]][[weight_name]]
-                  
-                  moran_test <- spdep::moran.test(
-                    dat$residual,
-                    w,
-                    zero.policy = TRUE
-                  )
-                  
-                  data.frame(
-                    weight_type = weight_name,
-                    model_name = mn,
-                    model_type = mt,
-                    residual_type = rt,
-                    
-                    morans_I =
-                      unname(moran_test$estimate[1]),
-                    
-                    expected_I =
-                      unname(moran_test$estimate[2]),
-                    
-                    variance_I =
-                      unname(moran_test$estimate[3]),
-                    
-                    p_value =
-                      moran_test$p.value
-                  )
-                }
-              )
+              lapply(names(weight_sets[[mn]]), function(wname) {
+                
+                w <- weight_sets[[mn]][[wname]]
+                
+                mi <- spdep::moran.test(dat$residual, w, zero.policy = TRUE)
+                
+                tibble(
+                  model_name    = mn,
+                  model_type    = mt,
+                  residual_type = rt,
+                  weight_type   = wname,
+                  morans_I      = unname(mi$estimate[1]),
+                  expected_I    = unname(mi$estimate[2]),
+                  variance_I    = unname(mi$estimate[3]),
+                  p_value       = mi$p.value
+                )
+              })
             )
           })
         )
@@ -1076,62 +1369,43 @@ morans_results <- bind_rows(
 )
 
 
-#nrow(morans_results)
-#dim(morans_results)
-#names(coords_by_model)
-#names(weight_sets)
-#unique(all_residuals$model_name)
-
-
-
-
 # A2) Quantitative results
 
-# A2a) Tidy
 morans_results <- morans_results %>%
   
   mutate(
-    
-    ### classify ecological process
     process = case_when(
       grepl("_col$", model_name) ~ "Colonization",
       grepl("_ext$", model_name) ~ "Extirpation",
       TRUE ~ "All transitions"
     ),
     
-    ### clean model type labels
     model_type = factor(
       model_type,
-      levels = c(
-        "true_null",
-        "pa_null",
-        "full_pa",
-        "localized_sac"
-      ),
+      levels = c("true_null", "pa_only", "env_pa", "local_sac"),
       labels = c(
-        "True Null",
+        "Null Model",
         "PA-only Model",
-        "Full Model",
-        "Full Model w SAC Term"
+        "Environment-PA Model",
+        "Environment-PA w SAC Model"
       )
     )
   )
 
 
-# A2b) Summarize
-morans_results
+# A3) Delta Moran's I (correct baseline)
+
+null_baseline <- morans_results %>%
+  filter(model_type == "Null Model") %>%
+  dplyr::select(weight_type, residual_type, process, null_I = morans_I)
 
 
 delta_morans_results <- morans_results %>%
-  
-  group_by(weight_type, residual_type, process) %>%
-  
-  mutate(
-    delta_morans_I = morans_I -
-      morans_I[model_type == "True Null"][1]
+  left_join(
+    null_baseline,
+    by = c("weight_type", "residual_type", "process")
   ) %>%
-  
-  ungroup()
+  mutate(delta_morans_I = morans_I - null_I)
 
 
 delta_summary <- delta_morans_results %>%
@@ -1139,20 +1413,16 @@ delta_summary <- delta_morans_results %>%
   group_by(weight_type, residual_type, model_type) %>%
   
   summarise(
-    
     mean_delta_morans_I = mean(delta_morans_I, na.rm = TRUE),
     sd_delta_morans_I   = sd(delta_morans_I, na.rm = TRUE),
     min_delta           = min(delta_morans_I, na.rm = TRUE),
     max_delta           = max(delta_morans_I, na.rm = TRUE),
-    
     .groups = "drop"
   )
 
-delta_morans_results
 
+# A4) Visualize
 
-
-# A2c) Visualize
 # Raw Moran's I
 ggplot(
   morans_results,
@@ -1162,32 +1432,18 @@ ggplot(
     fill = residual_type
   )
 ) +
-  
-  geom_col(
-    position = position_dodge(
-      width = 0.8
-    )
-  ) +
-  
-  facet_grid(
-    process ~ weight_type
-  ) +
-  
+  geom_col(position = position_dodge(width = 0.8)) +
+  facet_grid(process ~ weight_type) +
   labs(
     title = "Residual Moran's I Across Models and Weight Structures",
     x = NULL,
     y = "Moran's I",
     fill = "Residual Type"
   ) +
-  
   theme_minimal(base_size = 13) +
-  
   theme(
     legend.position = "bottom",
-    axis.text.x = element_text(
-      angle = 20,
-      hjust = 1
-    ),
+    axis.text.x = element_text(angle = 20, hjust = 1),
     plot.title = element_text(face = "bold")
   )
 
@@ -1201,26 +1457,19 @@ ggplot(
     fill = residual_type
   )
 ) +
-  
   geom_col(position = position_dodge()) +
-  
   facet_grid(process ~ weight_type) +
-  
   labs(
-    title = "Reduction in Spatial Autocorrelation (Δ Moran's I vs True Null)",
+    title = "Reduction in Spatial Autocorrelation (Δ Moran's I vs Null)",
     x = NULL,
     y = "Δ Moran's I",
     fill = "Residual type"
   ) +
-  
   theme_minimal(base_size = 13) +
-  
   theme(
     axis.text.x = element_text(angle = 25, hjust = 1),
     legend.position = "bottom"
   )
-
-
 
 
 
@@ -1234,6 +1483,9 @@ ggplot(
 # Flat semivariogram = little remaining SAC
 
 # B1) Analysis
+### --- B) Semivariance, Semivariograms --- ###
+# Quantify spatial structure in residuals across distance classes
+
 semivar_df <- all_residuals %>%
   
   group_by(residual_type, model_type, model_name) %>%
@@ -1242,30 +1494,30 @@ semivar_df <- all_residuals %>%
     
     dat <- .x
     
-    gdf <- sf::st_as_sf( # convert to spatial object
+    # safety check
+    if (nrow(dat) < 5) return(tibble())
+    
+    gdf <- sf::st_as_sf(
       dat,
       coords = c("x_km", "y_km"),
-      crs = NA_real_
+      remove = FALSE
     )
     
-    v <- gstat::variogram( # define quantitative constraints
+    cutoff_i <- 25  # km ecological scale
+    
+    v <- gstat::variogram(
       residual ~ 1,
       locations = gdf,
-      cutoff = 25,  # km max distance
-      width  = 5    # km bin width
+      cutoff = cutoff_i,
+      width  = 5
     )
     
     as.data.frame(v)
   }) %>%
   
-  ungroup()
-
-
-
-# B2) Results
-
-# B2a) Tidy
-semivar_df <- semivar_df %>%
+  ungroup() %>%
+  
+  filter(!is.na(gamma)) %>%
   
   mutate(
     
@@ -1275,27 +1527,18 @@ semivar_df <- semivar_df %>%
       TRUE ~ "All transitions"
     ),
     
+    # IMPORTANT: assumes you already standardized model_type upstream
     model_type = factor(
       model_type,
-      levels = c(
-        "true_null",
-        "pa_null",
-        "full_pa",
-        "localized_sac"
-      ),
+      levels = c("true_null", "pa_only", "env_pa", "local_sac"),
       labels = c(
-        "True Null",
+        "Null Model",
         "PA-only Model",
-        "Full Model",
-        "Full Model w SAC Term"
+        "Env-PA Model",
+        "SAC-Env-PA Model"
       )
     )
-  ) %>%
-  
-  arrange(residual_type, model_type, model_name, dist) %>%
-  
-  filter(!is.na(gamma))
-
+  )
 
 
 # B2b) Summarize
@@ -1304,25 +1547,14 @@ semivar_summary <- semivar_df %>%
   group_by(residual_type, process, model_type) %>%
   
   summarise(
-    
-    mean_semivariance =
-      mean(gamma, na.rm = TRUE),
-    
-    max_semivariance =
-      max(gamma, na.rm = TRUE),
-    
-    min_semivariance =
-      min(gamma, na.rm = TRUE),
-    
-    semivariance_range =
-      max(gamma, na.rm = TRUE) -
-      min(gamma, na.rm = TRUE),
-    
+    mean_semivariance = mean(gamma, na.rm = TRUE),
+    max_semivariance  = max(gamma, na.rm = TRUE),
+    min_semivariance  = min(gamma, na.rm = TRUE),
+    semivariance_range = max_semivariance - min_semivariance,
     .groups = "drop"
   )
 
 semivar_summary
-
 
 
 # B2c) Visualize
@@ -1338,37 +1570,32 @@ ggplot(
 ) +
   
   geom_line(linewidth = 1.1, na.rm = TRUE) +
-  geom_point(size = 1.8, na.rm = TRUE) +
+  geom_point(size = 1.5, na.rm = TRUE) +
   
   facet_grid(residual_type ~ process) +
   
-  scale_color_manual(
-    values = c(
-      "True Null" = "grey40",
-      "PA-only Model" = "orange",
-      "Full Model" = "turquoise4",
-      "Full Model w SAC Term" = "darkorchid"
-    )
-  ) +
+  scale_color_manual(values = c(
+    "Null Model" = "grey40",
+    "PA-only Model" = "orange",
+    "Env-PA Model" = "turquoise4",
+    "SAC-Env-PA Model" = "darkorchid"
+  )) +
   
   labs(
     title = "Residual Spatial Structure Across Model Types",
     x = "Distance Between Blocks (km)",
-    y = "Semivariance of DHARMa Residuals",
+    y = "Semivariance",
     color = NULL
   ) +
   
   theme_minimal(base_size = 13) +
-  
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold")
-  )
+  theme(legend.position = "bottom")
+
 
 
 # Zoom/Clipped distance
 ggplot(
-  semivar_df %>% filter(dist <= 25), # set max distance
+  semivar_df %>% filter(dist <= 25),
   aes(
     x = dist,
     y = gamma,
@@ -1376,32 +1603,30 @@ ggplot(
     group = interaction(model_type, model_name, process)
   )
 ) +
+  
   geom_line(linewidth = 1.1, na.rm = TRUE) +
-  geom_point(size = 1.6, na.rm = TRUE) +
+  geom_point(size = 1.4, na.rm = TRUE) +
   
   facet_wrap(~process) +
   
-  scale_color_manual(
-    values = c(
-      "True Null" = "grey40",
-      "PA-only Model" = "orange",
-      "Full Model" = "turquoise4",
-      "Full Model w SAC Term" = "darkorchid"
-    )
-  ) +
+  scale_color_manual(values = c(
+    "Null Model" = "grey40",
+    "PA-only Model" = "orange",
+    "Env-PA Model" = "turquoise4",
+    "SAC-Env-PA Model" = "darkorchid"
+  )) +
   
   labs(
     title = "Residual Spatial Structure (0–25 km)",
-    x = "Distance between blocks (km)",
-    y = "Semivariance of DHARMa residuals",
+    x = "Distance (km)",
+    y = "Semivariance",
     color = NULL
   ) +
   
   theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold")
-  )
+  theme(legend.position = "bottom")
+
+
 
 
 # B3) Summarize pairwise binning
@@ -1411,70 +1636,52 @@ ggplot(
 # Important because unstable bins with few comparisons can produce
 # noisy semivariance estimates.
 
+
 # B3a) Analyze
 pairs_summary <- semivar_df %>%
   
-  filter(
-    model_type == "Full Model"
-  ) %>%
+  filter(model_type == "Env-PA Model") %>%
   
   group_by(process) %>%
   
   summarise(
-    
-    mean_pairs =
-      mean(np, na.rm = TRUE),
-    
-    min_pairs =
-      min(np, na.rm = TRUE),
-    
-    max_pairs =
-      max(np, na.rm = TRUE),
-    
-    range_pairs =
-      max(np, na.rm = TRUE) -
-      min(np, na.rm = TRUE),
-    
-    sd_pairs =
-      sd(np, na.rm = TRUE),
-    
+    mean_pairs = mean(np, na.rm = TRUE),
+    min_pairs  = min(np, na.rm = TRUE),
+    max_pairs  = max(np, na.rm = TRUE),
+    sd_pairs   = sd(np, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+pairs_summary <- semivar_df %>%
+  
+  filter(model_type == "Env-PA Model") %>%
+  
+  group_by(process) %>%
+  
+  summarise(
+    mean_pairs = mean(np, na.rm = TRUE),
+    min_pairs  = min(np, na.rm = TRUE),
+    max_pairs  = max(np, na.rm = TRUE),
+    sd_pairs   = sd(np, na.rm = TRUE),
     .groups = "drop"
   )
 
 pairs_summary
 
 
-# B3b) Tidy
 pair_bins_summary <- semivar_df %>%
   
-  filter(
-    model_type == "Full Model"
-  ) %>%
+  filter(model_type == "Env-PA Model") %>%
   
-  dplyr::select(
-    process,
-    dist,
-    np
-  ) %>%
-  
+  dplyr::select(process, dist, np) %>%
   distinct() %>%
-  
   arrange(process, dist)
 
-pair_bins_summary
 
-
-# B3c) Visualize
-ggplot(
-  pair_bins_summary,
-  aes(
-    x = dist,
-    y = np
-  )
-) +
+ggplot(pair_bins_summary,
+       aes(x = dist, y = np)) +
   
   geom_line(linewidth = 1.1) +
-  
   geom_point(size = 2) +
   
   facet_wrap(~process, scales = "free_y") +
@@ -1489,21 +1696,17 @@ ggplot(
 
 
 
+
+
+
 #### Overall SAC Reduction ###
 # SACRI: SAC reduction index; SACRI = MoransI from fitted model / MoransI from null model
 # ---> how much residual SAC did a covariate term remove?
 
 baseline_I <- morans_results %>%
-  
-  filter(model_type == "True Null") %>%
-  
+  filter(model_type == "Null Model") %>%
   group_by(residual_type, weight_type) %>%
-  
-  summarise(
-    I0 = mean(morans_I, na.rm = TRUE),
-    .groups = "drop"
-  )
-
+  summarise(I0 = mean(morans_I, na.rm = TRUE), .groups = "drop")
 
 srei_results <- morans_results %>%
   
@@ -1511,21 +1714,18 @@ srei_results <- morans_results %>%
             by = c("residual_type", "weight_type")) %>%
   
   mutate(
-    SREI = 1 - (morans_I / I0)
+    SREI = (I0 - morans_I) / (abs(I0) + 1e-6)
   )
-
 
 srei_summary <- srei_results %>%
-  
   group_by(model_type, weight_type) %>%
-  
-  summarise(
-    mean_SREI = mean(SREI, na.rm = TRUE),
-    .groups = "drop"
-  )
+  summarise(mean_SREI = mean(SREI, na.rm = TRUE), .groups = "drop")
+
+srei_summary
 
 
 
+# Plot
 ggplot(srei_summary,
        aes(x = model_type, y = mean_SREI, fill = weight_type)) +
   

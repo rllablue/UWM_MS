@@ -48,13 +48,41 @@ wibba_covars_rll <- wibba_covars_raw %>%
   left_join(climate_summary_covars, by = "atlas_block")
 
 
-
-
-
-######### NEW 2.27.26] ###############
-
 covars_raw_rll <- covars_raw_rll %>% # add spp richness effort proxy
   mutate(sr_diff = sr_Atlas2 - sr_Atlas1)
 
 # write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
 
+
+### --- PRIORITY BLOCK --- ###
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks.gpkg") %>% 
+  mutate(
+    priority_block = factor(
+      priority_block,
+      levels = c(0, 1),
+      labels = c("nonpriority", "priority")
+    )
+  )
+
+
+#st_write(
+#  blocks_all_sf,
+#  "data/maps/wibba/Wisconsin_BBA_blocks.gpkg",
+#  delete_layer = TRUE
+#)
+
+#st_write(
+#  blocks_rll_sf,
+#  "data/maps/wibba/Wisconsin_BBA_blocks_rll.gpkg",
+#  delete_layer = TRUE
+#)
+
+
+### Native: EPSG:3071, Wisconsin Transverse Mercator
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks.gpkg") %>%
+  mutate(priority_block = factor(priority_block, levels = c("nonpriority", "priority")))
+blocks_all <- blocks_all_sf$atlas_block # vector
+
+blocks_rll_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks_rll.gpkg") %>%
+  mutate(priority_block = factor(priority_block, levels = c("nonpriority", "priority")))
+blocks_rll <- blocks_rll_sf$atlas_block # vector

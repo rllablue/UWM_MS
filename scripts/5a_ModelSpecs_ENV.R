@@ -1,4 +1,4 @@
-### Script: 5a_ModelSpecs.R
+### Script: 5a_ModelSpecs_ENV.R
 ### Purpose:
 
 
@@ -57,37 +57,30 @@ options(na.action = "na.fail") # required for MuMIn
 
 ### --- DATA --- ###
 
-# Bird Data #
-spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") # df
-spp_list <- unique(spp_zf_rll$common_name) # vector
+### --- Bird Data
 
-spp_guilds <- read.csv("data/summaries/species_guilds.csv")
+#spp_zf_rll <- read.csv("data/summaries/spp_zf_rll.csv") %>% # df
+#  dplyr::select(-X)
+#spp_list <- unique(spp_zf_rll$common_name) # vector
 
-spp_zf_rll <- spp_zf_rll %>%
-  left_join(spp_guilds, by = "common_name")
+#spp_guilds <- read.csv("data/summaries/species_guilds.csv")
+
+#spp_zf_rll <- spp_zf_rll %>%
+#  left_join(spp_guilds, by = "common_name")
 
 
 
-# Atlas Block Data #
-### Native: EPSG:3071, Wisconsin Transverse Mercator
-blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks.gpkg")
+### --- Atlas Block Data
+
+# Native: EPSG:3071, Wisconsin Transverse Mercator
+blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks.gpkg") %>%
+  mutate(priority_block = factor(priority_block, levels = c("nonpriority", "priority")))
 blocks_all <- blocks_all_sf$atlas_block # vector
 
-blocks_rll_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks_rll.gpkg")
+blocks_rll_sf <- st_read("data/maps/wibba/Wisconsin_BBA_blocks_rll.gpkg") %>%
+  mutate(priority_block = factor(priority_block, levels = c("nonpriority", "priority")))
 blocks_rll <- blocks_rll_sf$atlas_block # vector
 
-#blocks_all_sf <- st_read("data/maps/wibba/Wisconsin_Breeding_Bird_Atlas_Blocks.shp") %>% 
-#  rename(
-#    atlas_block = BLOCK_ID,
-#    priority_block = BLOCK_STAT
-#  ) %>%
-#  mutate(
-#    priority_block = case_when(
-#      priority_block %in% c("Regular Block", "Specialty Block") ~ 0L,
-#      priority_block %in% c("Priority Block") ~ 1L,
-#      TRUE ~ NA_integer_
-#    )
-#  )
 
 #st_write(
 #  blocks_all_sf,
@@ -102,39 +95,32 @@ blocks_rll <- blocks_rll_sf$atlas_block # vector
 #)
 
 
-# Covariate Data #
-covars_raw_rll <- read.csv("data/summaries/covars_raw_rll.csv") # df
 
-#covars_raw_rll <- covars_raw_rll %>%
+### --- Covariate Data
+
+covs_raw_rll_df <- read.csv("data/summaries/covs_raw_rll_df.csv") # df
+
+#covs_raw_rll_df <- covs_raw_rll_df %>%
 #  left_join(
 #    block_centroids_df %>%
 #      dplyr::select(atlas_block, lat, lon, x_km, y_km),
 #    by = "atlas_block"
 #    )
-#write.csv(covars_raw_rll, "data/summaries/covars_raw_rll.csv", row.names = FALSE)
-
-
-covars_z_rll <- read.csv("data/summaries/covars_z_rll.csv") # df
-
-#covars_z_rll <- covars_raw_rll %>% # z-standardized covariate values
-#  mutate(across(
-#    .cols = -atlas_block,
-#    .fns = ~ as.numeric(scale(.))
-#  ))
-#write.csv(covars_z_rll, "data/summaries/covars_z_rll.csv", row.names = FALSE)
+#write.csv(covs_raw_rll_df, "data/summaries/covs_raw_rll_df.csv", row.names = FALSE)
 
 
 
-# Consolidated Modeling Data #
-#mod_data_all <- spp_zf_rll %>%
-#  left_join(covars_z_rll, by = "atlas_block") %>%
-#  left_join(
-#    blocks_rll_sf %>%
-#      st_drop_geometry() %>%
-#      dplyr::select(atlas_block, priority_block),
+### --- Consolidated Modeling Data 
+#moddata_raw_rll_df <- spp_zf_rll %>% 
+#  left_join(covs_raw_rll_df, 
+#    by = "atlas_block") %>%
+#  left_join(blocks_rll_sf %>%
+#    st_drop_geometry() %>%
+#    dplyr::select(atlas_block, priority_block),
 #    by = "atlas_block"
 #  )
-#write.csv(mod_data_all, "outputs/data/mod_data_all.csv", row.names = FALSE)
+
+#write.csv(moddata_raw_rll_df, "outputs/data/moddata_raw_rll_df.csv", row.names = FALSE)
 
 
 
@@ -143,22 +129,22 @@ covars_z_rll <- read.csv("data/summaries/covars_z_rll.csv") # df
 #####################
 
 # FULL DATASET #
-mod_data_all <- read.csv("outputs/data/mod_data_all.csv")
+moddata_raw_rll_df <- read.csv("outputs/data/moddata_raw_rll_df.csv") %>%
+  mutate(priority_block = factor(priority_block, levels = c("nonpriority", "priority")))
+
 
 # STORING #
 pa_results_df <- data.frame()
 
+## SPECIES ##
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
 
-# --- SPECIES-RESPONSE SUBSETTING --- #
 
-### Separate data into bins where A2 detection is either 1 or 0; not necessarily
-# in precise probabilities between col, per, abs, ext, but more what promotes
-# 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
-# what promotes det = 0. Colonization = col + abs data, Extinction = ext + pre data
-### Scaling of covars w/in subsets for relevant normalized values
+
 
 ## SPECIES COUNTS ##
-rll_spp_counts <- mod_data_all %>%
+rll_spp_counts <- moddata_raw_rll_df %>%
   filter(atlas_block %in% blocks_rll) %>%
   count(common_name, transition_state) %>%
   pivot_wider(
@@ -172,7 +158,7 @@ rll_spp_counts <- mod_data_all %>%
 min_total <- 30
 min_events <- 10
 
-rll_valid_counts <- mod_data_all %>%
+rll_valid_counts <- moddata_raw_rll_df %>%
   filter(atlas_block %in% blocks_rll) %>%
   count(common_name, transition_state) %>%
   pivot_wider(
@@ -184,12 +170,12 @@ rll_valid_counts <- mod_data_all %>%
     
     # modeling totals
     col_abs_total = Absence + Colonization,
-    ext_per_total = Persistence + Extinction,
+    ext_per_total = Persistence + Extirpation,
     
     # event structure
     col_events     = Colonization,
     col_nonevents  = Absence,
-    ext_events     = Extinction,
+    ext_events     = Extirpation,
     ext_nonevents  = Persistence,
     
     # validity thresholds
@@ -209,7 +195,7 @@ rll_valid_counts <- mod_data_all %>%
     common_name,
     Absence,
     Colonization,
-    Extinction,
+    Extirpation,
     Persistence,
     col_abs_total,
     ext_per_total,
@@ -219,9 +205,14 @@ rll_valid_counts <- mod_data_all %>%
 
 
 
-## SPECIES MODELED ##
-spp_alpha <- "CAWA"
-spp_name <- "Canada Warbler"
+
+# --- SPECIES-RESPONSE MOD DATA SUBSETTING --- #
+
+### Separate data into bins where A2 detection is either 1 or 0; not necessarily
+# in precise probabilities between col, per, abs, ext, but more what promotes
+# 'new' v. 'continued' colonization, ie. what promotes det = 1, as opposed to 
+# what promotes det = 0. Colonization = col + abs data, Extirpation = ext + pre data
+### Scaling of covars w/in subsets for relevant normalized values
 
 
 # Helper: Build filtered modeling dfs
@@ -249,10 +240,9 @@ BuildSppRespDfs <- function(data,
 }
 
 
-
 # Apply: Colonization Model (Col + Abs)
-mod_col_rll <- BuildSppRespDfs(
-  data = mod_data_all,
+modcol_rll_raw_df <- BuildSppRespDfs(
+  data = moddata_raw_rll_df,
   species = spp_alpha,
   block_vector = blocks_rll,
   state_pairs = c("Colonization", "Absence"),
@@ -260,22 +250,39 @@ mod_col_rll <- BuildSppRespDfs(
   response_one = "Colonization"
 )
 
-# Apply: Extinction Model (Ext + Per)
-mod_ext_rll <- BuildSppRespDfs(
-  data = mod_data_all,
+
+# Apply: Extirpation Model (Ext + Per)
+modext_rll_raw_df <- BuildSppRespDfs(
+  data = moddata_raw_rll_df,
   species = spp_alpha,
   block_vector = blocks_rll,
-  state_pairs = c("Extinction", "Persistence"),
+  state_pairs = c("Extirpation", "Persistence"),
   response_name = "ext",
-  response_one = "Extinction"
+  response_one = "Extirpation"
 )
+
+
+# Helper: Scale covariates within species-response subsets
+ZScaleNumericData <- function(df,
+                              exclude = c("col", "ext", "det_Atlas1", "det_Atlas2")) {
+  
+  nums <- names(df)[sapply(df, is.numeric)] 
+  nums <- setdiff(nums, exclude)
+  df[nums] <- lapply(df[nums], \(x) as.numeric(scale(x)))
+  df
+}
+
+# Apply: independently z-scaled modeling data subsets
+modcol_rll_z_df <- modcol_rll_raw_df %>% ZScaleNumericData()
+modext_rll_z_df <- modext_rll_raw_df %>% ZScaleNumericData()
 
 
 # Store in list
 mod_dfs_all <- list(
-  col_rll = mod_col_rll,
-  ext_rll = mod_ext_rll
+  colmod = modcol_rll_z_df,
+  extmod = modext_rll_z_df
 )
+
 
 
 
@@ -285,7 +292,7 @@ mod_dfs_all <- list(
 ##################
 
 # FULL DATASET #
-factor_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
+chr_covs_all <- c("atlas_block", "common_name", "alpha_code", "transition_state", "guild")
 
 stable_covs_all <- c("lon", "lat", "sr_diff", "priority_block", "pa_prop", # total prop pa per block 
                      
@@ -318,7 +325,7 @@ climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
 ### Habitat guilds to bin land covariates
 
 # Inputs
-guild_key <- list(
+guildcovs_map <- list(
   
   forest = c("developed_total_base", "grass_pasture_base",
              "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
@@ -352,11 +359,16 @@ guild_key <- list(
   
 )
 
+# lookup table
+sppguild_lookup <- moddata_raw_rll_df %>%
+  distinct(alpha_code, guild)
 
-GetGuildCovs <- function(species, data, guild_map) {
-  guild_value <- data %>%
+
+# Helper: pull spp-guild-covars combinations
+PullGuildCovs <- function(species, guild_lookup, guild_map) {
+  
+  guild_value <- guild_lookup %>%
     filter(alpha_code == species) %>%
-    distinct(guild) %>%
     pull(guild)
   
   if (length(guild_value) == 0) {
@@ -372,9 +384,9 @@ GetGuildCovs <- function(species, data, guild_map) {
 
 
 # Apply: Species Specific Covariate Sets
-factor_covs_reduced <- c("atlas_block", "transition_state")
-stable_covs_reduced <- c("sr_diff", "priority_block") # no pa in this stage
-land_covs_reduced <- GetGuildCovs(spp_alpha, mod_data_all, guild_key)
+chr_covs_reduced <- c("atlas_block", "transition_state")
+stable_covs_reduced <- c("sr_diff", "priority_block") # no PA in this script
+land_covs_reduced <- PullGuildCovs(spp_alpha, sppguild_lookup, guildcovs_map)
 climate_covs_reduced <- c("tmax_38yr", "prcp_38yr", # base year values
                           "tmax_diff", "tmin_diff", "prcp_diff") # change values
 
@@ -386,6 +398,9 @@ numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_r
 
 # CORRELATIONS #
 ### Pair-wise, linear relationships (i.e. bivariate)
+stable_covs_reduced <- c("sr_diff") # no priority_block, corrs cannot handle factors
+numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_reduced)
+
 
 covnames <- unique(numeric_covs_reduced)
 
@@ -440,7 +455,7 @@ VisualizeCorrelations <- function(data, covs, label = "") {
   invisible(cor_mat)
 }
 
-
+# Apply: aseess pairwise corrs
 corr_results <- lapply(
   names(mod_dfs_all),
   function(nm) {
@@ -478,13 +493,13 @@ GetHighCorrs <- function(data, covs, threshold = 0.7) {
   invisible(pc)
 }
 
-corrs1 <- GetHighCorrs(mod_col_rll, numeric_covs_reduced)
-corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
+corrs1 <- GetHighCorrs(modcol_rll_z_df, numeric_covs_reduced)
+corrs2 <- GetHighCorrs(modext_rll_z_df, numeric_covs_reduced)
 
 
 
 # Output covariates
-# stable_covars_reduced
+#stable_covars_reduced
 
 #guild_key
 #land_covs_reduced <- c()
@@ -499,9 +514,13 @@ corrs2 <- GetHighCorrs(mod_ext_rll, numeric_covs_reduced)
 # VARIANCE INFLATION FACTOR #
 ### Single variable relationship to all others as a group (i.e. multivariate); 
 # multicollinearity redundancy measure, i.e. too similar to uniquely est coefficients (ideally VIF < 5)
+stable_covs_reduced <- c("sr_diff", "priority_block") # VIF can handle factors
+numeric_covs_reduced <- c(stable_covs_reduced, land_covs_reduced, climate_covs_reduced)
+
+
 responses <- c(
-  col_rll = "col",
-  ext_rll = "ext"
+  colmod = "col",
+  extmod = "ext"
 )
 
 
@@ -563,33 +582,24 @@ names(vif_results) <- names(mod_dfs_all)
 
 
 
-#######################
-### MODEL SELECTION ### 
-#######################
+#####################################
+### MODEL CONSTRUCTION, SELECTION ### 
+#####################################
 
 ### --- PROCESS, SET UP --- ###
 
 ### Steps ###
 
 # 1) Partitioned AICc Model Selection
-# Construct, rank separate models partitioning land and climate covariates
-# Carry over best covariates for each set into interactions, global model
+# Construct, fit, rank separate models partitioning land and climate covariates;
+# carry over best covariates for each set into full ENV models.
 
-
-# 2) Global AICc Model Selection
-
-# 2A) Additive only models
-# Construct, fit, rank top models AICc < 2 w/ addiitve terms only
-# Extract reference model for each block/response subset to carry into interactions
-
-# 2B) Interaction Terms
-# Generate plausible 2-way interactions w/ protected area using terms from additive
-# reference model for each block/response subset
-
+# 2) Additive ENV Model Selection
+# Construct, fit, rank top models AICc < 2 w/ additive land, climate, effort terms;
+# extract reference model for each response subset.
 
 # 3) Model Diagnostics
-# AICc Table visualization
-# Assess reference models for each block/response for uninformative parameters, etc.
+# Assess top candidate models for each response for correlations, dispersion, fit, uninformative parameters, etc.
 
 
 ### DATA ###
@@ -607,8 +617,8 @@ partition_grid <- expand.grid(
 )
 
 data_dir <- list(
-  RLL_col = mod_col_rll,
-  RLL_ext = mod_ext_rll
+  RLL_col = modcol_rll_z_df,
+  RLL_ext = modext_rll_z_df
 )
 
 covar_dir <- list(
@@ -934,14 +944,7 @@ reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
 
 
 
-### --- STEP 3: ENV MODEL FITTING, DIAGNOSTICS --- ###
-
-# Model data (responses: col, abs)
-data_dir <- list(
-  RLL_col = mod_col_rll,
-  RLL_ext = mod_ext_rll
-)
-
+### --- STEP 3: ENV TOP CANDIDATE MODEL FITTING --- ###
 
 ### Helper: Pull formula for ref mod
 ExtractRefFormula <- function(ref_df, response) {
@@ -974,620 +977,337 @@ names(global_glm_models) <- names(reference_global_models)
 global_glm_summaries <- lapply(global_glm_models, summary)
 global_glm_summaries
 
-vif_global_models <- lapply(global_glm_models, car::vif)
-vif_global_models
 
 
 
 
+########################
+### MODEL ASSESSMENT ###
+########################
 
-### --- 4: GLOBAL PA MODELS --- ###
-
-pa_covar <- c("pa_prop")
+models <- global_glm_models
 
 
+### --- 1: DATA STATS CHECKS --- ###
 
-### BASE PA ###
-
-ExtractPAFormula <- function(ref_df, response) {
+### --- 1A: Correlated Pairs
+GetCorrelatedPairs <- function(model, cutoff = 0.7, digits = 2) {
   
-  if (is.null(ref_df) || nrow(ref_df) == 0) {
-    stop("Empty reference model for response: ", response)
-  }
-  
-  as.formula(
-    paste(response, "~", ref_df$Modnames[1], "+ pa_prop")
-  )
-}
-
-
-pa_glm_models <- lapply(names(reference_global_models), function(nm) {
-  
-  response <- strsplit(nm, "_")[[1]][2]
-  
-  glm(
-    formula = ExtractPAFormula(reference_global_models[[nm]], response),
-    data    = data_dir[[nm]],
-    family  = binomial
-  )
-})
-
-names(pa_glm_models) <- names(reference_global_models)
-
-
-
-# predicted probabilities
-pa_predictions <- lapply(pa_glm_models, function(model) {
-  predict(model, type = "response")
-})
-
-pa_predictions
-#pa_predictions$RLL_col
-#pa_predictions$RLL_ext
-
-
-# residuals
-pa_residuals <- lapply(pa_glm_models, function(model) {
-  residuals(model, type = "pearson")
-})
-
-pa_residuals
-#pa_residuals$RLL_col
-#pa_residuals$RLL_ext
-
-
-pa_glm_summaries <- lapply(pa_glm_models, summary)
-pa_glm_summaries
-
-
-
-
-### --- 5: MODEL ASSESSMENT --- ###
-
-## Stats Checks: Corrs, VIF
-GetCorrelatedPairs <- function(model,
-                               cutoff = 0.7,
-                               digits = 2) {
-  
-  # model matrix
   mm <- model.matrix(model)
-  
-  # remove intercept
   mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
   
-  # correlation matrix
   cor_mat <- cor(mm, use = "complete.obs")
   
-  # convert to long format
   cor_df <- as.data.frame(as.table(cor_mat))
+  names(cor_df) <- c("var1", "var2", "correlation")
   
-  colnames(cor_df) <- c("var1", "var2", "correlation")
-  
-  # remove duplicates + self correlations
-  cor_df <- cor_df %>%
+  cor_df %>%
     filter(var1 != var2) %>%
     rowwise() %>%
     mutate(pair = paste(sort(c(var1, var2)), collapse = "__")) %>%
     ungroup() %>%
     distinct(pair, .keep_all = TRUE) %>%
-    dplyr::select(-pair)
-  
-  # absolute correlation filter
-  cor_df <- cor_df %>%
+    dplyr::select(-pair) %>%
     filter(abs(correlation) >= cutoff) %>%
     mutate(correlation = round(correlation, digits)) %>%
     arrange(desc(abs(correlation)))
-  
-  cor_df
 }
 
-# Apply to all PA models
-pa_model_cor_pairs <- lapply(
-  pa_glm_models,
-  GetCorrelatedPairs,
-  cutoff = 0.7
-)
-
-pa_model_cor_pairs
-
-vif_pa_models <- lapply(pa_glm_models, car::vif)
-vif_pa_models
+corr_pairs <- lapply(models, GetCorrelatedPairs, cutoff = 0.7)
+#corr_pairs
 
 
 
+### --- 1B: VIF
+vif_mods <- lapply(models, car::vif)
+#vif_mods
 
 
 
-### AUC
+### --- 2: MODEL PERFORMANCE --- ###
 
-pa_auc <- lapply(names(pa_glm_models), function(nm) {
-  
-  model <- pa_glm_models[[nm]]
-  
-  # extract observed response from model frame
-  observed <- model$model[[1]]
-  
-  # predicted probabilities
-  predicted <- predict(model, type = "response")
-  
-  # calculate AUC
-  auc_value <- pROC::auc(observed, predicted)
+### --- 2A: AUC
+auc_mods <- bind_rows(lapply(names(models), function(nm) {
+  mod <- models[[nm]]
   
   data.frame(
     model = nm,
-    AUC = as.numeric(auc_value)
-  )
-})
-
-pa_auc <- do.call(rbind, pa_auc)
-pa_auc
-
-
-
-### Pseudo-R2
-pa_r2 <- lapply(names(pa_glm_models), function(nm) {
-  
-  model <- pa_glm_models[[nm]]
-  
-  r2_vals <- pscl::pR2(model)
-  
-  data.frame(
-    model = nm,
-    McFadden_R2 = r2_vals["McFadden"]
-  )
-})
-
-pa_r2 <- do.call(rbind, pa_r2)
-pa_r2
-
-
-# Combine
-pa_model_metrics <- merge(
-  pa_auc,
-  pa_r2,
-  by = "model"
-)
-
-pa_model_metrics
-
-
-
-## VISUAL ROC curves
-roc_col <- roc(
-  response = pa_glm_models$RLL_col$model[[1]],
-  predictor = pa_predictions$RLL_col
-)
-
-roc_ext <- roc(
-  response = pa_glm_models$RLL_ext$model[[1]],
-  predictor = pa_predictions$RLL_ext
-)
-
-plot(roc_col)
-plot(roc_ext, add = TRUE)
-legend("bottomright",
-       legend = c("RLL_col", "RLL_ext"))
-
-
-
-
-### ROC objects ###
-### Convert ROC output to data frames ###
-
-roc_col_df <- data.frame(
-  FPR = 1 - roc_col$specificities,
-  TPR = roc_col$sensitivities,
-  Model = "Colonization"
-)
-
-roc_ext_df <- data.frame(
-  FPR = 1 - roc_ext$specificities,
-  TPR = roc_ext$sensitivities,
-  Model = "Extinction"
-)
-
-roc_df <- rbind(roc_col_df, roc_ext_df)
-
-### Pull AUC values for legend labels ###
-
-auc_col <- round(as.numeric(auc(roc_col)), 3)
-auc_ext <- round(as.numeric(auc(roc_ext)), 3)
-
-### ggplot ROC ###
-
-ggplot(roc_df, aes(x = FPR, y = TPR, color = Model)) +
-  
-  geom_line(linewidth = 1.2) +
-  
-  geom_abline(
-    slope = 1,
-    intercept = 0,
-    linetype = "dashed",
-    color = "grey50"
-  ) +
-  
-  scale_color_manual(
-    values = c(
-      "Colonization" = "#2C7BB6",
-      "Extinction"   = "#D7191C"
-    ),
-    labels = c(
-      paste0("Colonization (AUC = ", auc_col, ")"),
-      paste0("Extirpation (AUC = ", auc_ext, ")")
+    AUC = as.numeric(
+      pROC::auc(
+        mod$model[[1]],
+        predict(mod, type = "response")
+      )
     )
-  ) +
+  )
+}))
+#auc_mods
+
+
+### --- 2B: McFadden's Pseudo-R2
+r2_mods <- bind_rows(lapply(names(models), function(nm) {
+  r2 <- pscl::pR2(models[[nm]])
+  data.frame(
+    model = nm,
+    McFadden_R2 = r2["McFadden"]
+  )
+}))
+#r2_mods
+
+
+### --- 2C: Over-dispersion
+### disp. ratio approx. = 1 (none); disp. ration > 1.2 (possible); p < 0.05 (sig. over-dispersion)
+overdisp_mods <- bind_rows(lapply(names(models), function(nm) {
+  chk <- performance::check_overdispersion(models[[nm]])
   
+  tibble(
+    model = nm,
+    dispersion_ratio = chk$dispersion_ratio,
+    p_value = chk$p_value
+  )
+}))
+#overdisp_mods
+
+
+
+### --- 3: PARAMETER INFERENCE --- ###
+
+# Arnold (2010) uninformative parameters:
+# 1) 95% CI overlaps 0
+# 2) LRT/Wald p-value nonsig.
+# 3) delta_AICc negligible with removal of term (approx. < 2)
+
+
+### --- 3A: Coefficient Summary
+coefs_summary <- bind_rows(lapply(names(models), function(nm) {
+  broom::tidy(models[[nm]], conf.int = TRUE) %>%
+    mutate(model = nm)
+}))
+#coefs_summary
+
+
+### --- 3B: Flag Potentially Uninformative Parameters
+# flag parameters where 95% CI overlaps 0, p > 0.05
+uninf_pars <- coefs_summary %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    ci_overlaps_zero = conf.low <= 0 & conf.high >= 0,
+    non_significant = p.value > 0.05,
+    potentially_uninformative = ci_overlaps_zero & non_significant
+  ) %>%
+  arrange(model, desc(potentially_uninformative))
+#uninf_pars
+
+
+### --- 3C: Summarize 
+uninf_summary <- uninf_pars %>%
+  group_by(model) %>%
+  summarise(
+    n_predictors = n(),
+    n_uninformative = sum(potentially_uninformative, na.rm = TRUE),
+    pct_uninformative = 100 * n_uninformative / n_predictors,
+    .groups = "drop"
+  )
+#uninf_summary
+
+
+### --- 3D: Likelihood Ratio Tests
+# evaluate whether removing parameter worsens model fit
+lrt_results <- bind_rows(lapply(names(models), function(nm) {
+  drop1(models[[nm]], test = "Chisq") %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(model = nm)
+}))
+#lrt_results
+
+
+### --- 3E: Visualize Coefficient Estimates
+coefs_summary %>%
+  filter(term != "(Intercept)") %>%
+  ggplot(aes(x = estimate, y = reorder(term, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  geom_point(size = 2) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), width = 0.15) +
+  facet_wrap(~ model, scales = "free_y") +
   labs(
-    title = "ROC Curves for PA Logistic GLMs",
+    x = "Coefficient Estimate",
+    y = NULL,
+    title = "Global Model Effect Estimates"
+  ) +
+  theme_minimal(base_size = 13)
+
+
+
+### --- 4: RESIDUAL DIAGNOSTICS --- ###
+
+set.seed(123)
+
+resids_dharma <- lapply(models, DHARMa::simulateResiduals, plot = FALSE) # DHARMa std quantile sim residuals
+
+
+### --- 4A: Residual Uniformity
+### Checks whether residuals follow expected uniform distribution;
+# p > 0.05 (acceptable distribution), p < 0.05 (possible model misspecification) 
+resids_uniformity <- bind_rows(lapply(names(resids_dharma), function(nm) {
+  tst <- DHARMa::testUniformity(resids_dharma[[nm]], plot = FALSE)
+  data.frame(model = nm, statistic = tst$statistic, p_value = tst$p.value)
+}))
+#resids_uniformity
+
+
+
+### --- 4C: Residual Dispersion
+### p > 0.05 (dispersion acceptable), p < 0.005 (possible over- or under-dispersion)
+resids_dispersion <- bind_rows(lapply(names(resids_dharma), function(nm) {
+  tst <- DHARMa::testDispersion(resids_dharma[[nm]], plot = FALSE)
+  data.frame(model = nm, statistic = tst$statistic, p_value = tst$p.value)
+}))
+#resids_dispersion
+
+
+### --- 4D: Residual Outlier Test
+resids_outlier <- bind_rows(lapply(names(resids_dharma), function(nm) {
+  tst <- DHARMa::testOutliers(resids_dharma[[nm]], plot = FALSE)
+  
+  tibble(
+    model = nm,
+    outlier_frequency = if (!is.null(tst$estimate)) as.numeric(tst$estimate) else NA_real_,
+    p_value = tst$p.value %||% NA_real_,
+    method = tst$method %||% NA_character_
+  )
+}))
+#resids_outlier
+
+
+
+### --- 4E: Diagnostics Results
+corr_pairs
+vif_mods
+auc_mods
+r2_mods
+overdisp_mods
+coefs_summary
+uninf_pars
+uninf_summary
+lrt_results
+resids_uniformity
+resids_dispersion
+resids_outlier
+
+
+
+### --- 5: Visualizations --- ###
+
+labels <- c(
+  RLL_col = "Colonization (RLL_col)",
+  RLL_ext = "Extirpation (RLL_ext)"
+)
+
+
+### --- 5A: DHARMa resids QQ, pred probs
+
+# Residual summary plots
+par(mfrow = c(1, 2),
+    mar = c(4, 4, 3, 1))
+
+for (nm in names(resids_dharma)) {
+  plot(
+    resids_dharma[[nm]],
+    main = labels[[nm]]
+  )
+}
+
+par(mfrow = c(1, 1))
+
+
+# QQ plots
+par(mfrow = c(1, 2),
+    mar = c(4, 4, 4, 1))
+
+for (nm in names(resids_dharma)) {
+  DHARMa::plotQQunif(
+    resids_dharma[[nm]],
+    main = labels[[nm]]
+  )
+}
+
+par(mfrow = c(1, 1))
+
+
+# Dispersion
+par(mfrow = c(1, 2),
+    mar = c(4, 4, 4, 1))
+
+for (nm in names(resids_dharma)) {
+  DHARMa::testDispersion(
+    resids_dharma[[nm]],
+    plot = TRUE
+  )
+  title(main = labels[[nm]], line = 2)
+}
+
+par(mfrow = c(1, 1))
+
+
+# Outliers
+par(mfrow = c(1, 2),
+    mar = c(4, 4, 4, 1))
+
+for (nm in names(resids_dharma)) {
+  DHARMa::testOutliers(
+    resids_dharma[[nm]],
+    plot = TRUE
+  )
+  title(main = labels[[nm]], line = 2)
+}
+
+par(mfrow = c(1, 1))
+
+
+
+
+
+
+### --- 5B: ROC Curves
+pred_probs <- lapply(models, predict, type = "response")
+
+roc_col <- pROC::roc(models$RLL_col$model[[1]], pred_probs$RLL_col)
+roc_ext <- pROC::roc(models$RLL_ext$model[[1]], pred_probs$RLL_ext)
+
+roc_df <- bind_rows(
+  data.frame(
+    FPR = 1 - roc_col$specificities,
+    TPR = roc_col$sensitivities,
+    Model = "Colonization"
+  ),
+  data.frame(
+    FPR = 1 - roc_ext$specificities,
+    TPR = roc_ext$sensitivities,
+    Model = "Extirpation"
+  )
+)
+
+auc_col <- as.numeric(pROC::auc(roc_col))
+auc_ext <- as.numeric(pROC::auc(roc_ext))
+
+
+# plot
+ggplot(roc_df, aes(FPR, TPR, color = Model)) +
+  geom_line(linewidth = 1.2) +
+  geom_abline(linetype = "dashed", color = "grey50") +
+  scale_color_manual(values = c("Colonization" = "#2C7BB6",
+                                "Extirpation" = "#D7191C"),
+                     labels = c(
+                       paste0("Colonization (AUC = ", round(auc_col, 3), ")"),
+                       paste0("Extirpation (AUC = ", round(auc_ext, 3), ")")
+                     )) +
+  labs(
+    title = "ROC Curves for ENV Logistic GLMs",
     x = "False Positive Rate (1 - Specificity)",
     y = "True Positive Rate (Sensitivity)",
     color = NULL
   ) +
-  
   coord_equal() +
-  
   theme_minimal(base_size = 13) +
-  
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-### --- 6: STORE EFFECTS --- ###
-
-
-# Extract, Collect Base PA effects 
-ExtractPACoefficients <- function(model, model_name, spp_name) {
-  
-  parts <- strsplit(model_name, "_")[[1]]
-  block    <- parts[1]
-  response <- parts[2]
-  
-  df <- broom::tidy(model)
-  
-  if (!"pa_prop" %in% df$term) {
-    return(NULL)
-  }
-  
-  df %>%
-    filter(term == "pa_prop") %>%
-    mutate(
-      species   = spp_name,
-      response  = response,
-      block     = block,
-      conf.low  = estimate - 1.96 * std.error,
-      conf.high = estimate + 1.96 * std.error,
-      sig       = ifelse(conf.low > 0 | conf.high < 0, "yes", "no")
-    ) %>%
-    dplyr::select(species, block, response, estimate, std.error, conf.low, conf.high, p.value, sig)
-}
-
-
-species_results <- dplyr::bind_rows(
-  lapply(names(pa_glm_models), function(nm) {
-    ExtractPACoefficients(pa_glm_models[[nm]], nm, spp_name)
-  })
-)
-
-
-if (!"species" %in% names(rll_results_df)) {
-  
-  rll_results_df <- species_results
-  
-} else {
-  
-  rll_results_df <- rll_results_df %>%
-    dplyr::filter(species != spp_name) %>%
-    dplyr::bind_rows(species_results)
-  
-}
-
-
-
-
-
-
-################################ PA: Interactions
-mod_col_pa <- pa_glm_models[["RLL_col"]]
-mod_ext_pa <- pa_glm_models[["RLL_ext"]]
-
-form_col_base <- formula(mod_col_pa)
-form_ext_base <- formula(mod_ext_pa)
-
-form_col_int <- update(form_col_base, . ~ . + pa_prop:forest_total_base) # :tmax_38yr, :forest_total_base, :grassland_base, :wetlands_total_base
-form_ext_int <- update(form_ext_base, . ~ . + pa_prop:forest_total_base)
-
-
-mod_col_pa_int <- glm(
-  formula = form_col_int,
-  data    = mod_col_rll,
-  family  = binomial
-)
-summary(mod_col_pa_int)
-car::vif(mod_col_pa_int, type = "terms")
-
-
-mod_ext_pa_int <- glm(
-  formula = form_ext_int,
-  data    = mod_ext_rll,
-  family  = binomial
-)
-summary(mod_ext_pa_int)
-car::vif(mod_ext_pa_int, type = "terms")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-### GAP STATUS #################################################################
-
-gap_covars <- c("gap1_prop", "gap2_prop", "gap3_prop")
-
-
-
-
-MakeSubsets <- function(vars) {
-  
-  unlist(
-    lapply(0:length(vars), function(k) {
-      combn(vars, k, simplify = FALSE)
-    }),
-    recursive = FALSE
-  )
-}
-
-
-FitPAGapModels <- function(ref_df, response, data) {
-  
-  # Base environmental structure
-  env_rhs <- ref_df$Modnames[1]
-  
-  # Base PA model (always included)
-  base_rhs <- paste(env_rhs, "+ pa_prop")
-  
-  # All GAP combinations
-  gap_sets <- MakeSubsets(gap_covars)
-  
-  # Build RHS formulas
-  rhs_list <- lapply(gap_sets, function(gaps) {
-    if (length(gaps) == 0) {
-      base_rhs
-    } else {
-      paste(base_rhs, "+", paste(gaps, collapse = " + "))
-    }
-  })
-  
-  # Name models nicely
-  names(rhs_list) <- sapply(gap_sets, function(gaps) {
-    if (length(gaps) == 0) return("PA_only")
-    paste("PA", paste(gaps, collapse = "_"), sep = "_")
-  })
-  
-  # Fit models
-  models <- lapply(rhs_list, function(rhs) {
-    glm(as.formula(paste(response, "~", rhs)),
-        data = data,
-        family = binomial)
-  })
-  
-  # Model selection
-  ms_table <- MuMIn::model.sel(models, rank = "AICc")
-  
-  list(models = models, sel_table = ms_table)
-}
-
-
-
-pa_sig_models <- c("RLL_col")
-
-pa_gap_models <- lapply(pa_sig_models, function(nm) {
-  
-  response <- strsplit(nm, "_")[[1]][2]
-  
-  FitPAGapModels(
-    ref_df = reference_global_models[[nm]],
-    response = response,
-    data = data_dir[[nm]]
-  )
-})
-
-names(pa_gap_models) <- pa_sig_models
-
-
-
-RefitTopModel <- function(model_obj) {
-  
-  ms_table <- model_obj$sel_table
-  models   <- model_obj$models
-  
-  df <- as.data.frame(ms_table)
-  df$Modnames <- rownames(df)
-  
-  top_name <- df$Modnames[which.min(df$delta)][1]
-  
-  models[[top_name]]
-}
-
-
-top_pa_gap_models <- lapply(pa_gap_models, RefitTopModel)
-
-
-# Check results
-summary(top_pa_gap_models$RLL_col)
-car::vif(top_pa_gap_models$RLL_col)
-
-
-
-pa_vars <- c("pa_prop", "gap1_prop", "gap2_prop", "gap3_prop")
-
-cor_mat <- cor(
-  data_dir$RLL_col[, pa_vars],
-  use = "complete.obs"
-)
-
-round(cor_mat, 3)
-
-corrplot::corrplot(
-  cor_mat,
-  method = "color",
-  type = "upper",
-  tl.col = "black",
-  tl.cex = 0.8,
-  addCoef.col = "black"
-)
-
-
-
-pa_only <- subset(data_dir$RLL_col, pa_prop > 0)
-
-cor_pa_only <- cor(
-  pa_only[, pa_vars],
-  use = "complete.obs"
-)
-
-round(cor_pa_only, 3)
-
-corrplot::corrplot(
-  cor_pa_only,
-  method = "color",
-  type = "upper",
-  tl.col = "black",
-  tl.cex = 0.8,
-  addCoef.col = "black"
-)
-
-
-pairs(
-  data_dir$RLL_col[, pa_vars],
-  pch = 16,
-  cex = 0.5
-)
-
-
-
-# GAP-only Mod
-gap_only_mod <- glm(
-  formula = col ~ sr_diff + tmax_38yr + developed_total_base + forest_deciduous_base + forest_mixed_base + 
-    gap1_prop + gap2_prop + gap3_prop,
-  data    = mod_col_rll,
-  family  = binomial)
-
-summary(gap_only_mod)
-
-
-
-mod_vars <- c("sr_diff", "tmax_38yr", "developed_total_base", "forest_deciduous_base", "forest_mixed_base", "pa_prop",
-              "gap1_prop", "gap2_prop", "gap3_prop")
-
-cor_mat_full <- cor(
-  data_dir$RLL_col[, mod_vars],
-  use = "complete.obs"
-)
-
-round(cor_mat_full, 3)
-
-corrplot::corrplot(
-  cor_mat_full,
-  method = "color",
-  type = "upper",
-  tl.col = "black",
-  tl.cex = 0.8,
-  addCoef.col = "black"
-)
-
-
-
-
-
-
-
-### MANAGER ####################################################################
-
-own_covars <- c("sdnr_prop", "usfs_prop", "tnc_prop") # "nas_prop"
-
-
-FitPAModels <- function(ref_df, response, data) {
-  
-  # Extract environmental RHS from reference model
-  env_rhs <- ref_df$Modnames[1]
-  
-  # Build candidate RHS strings
-  rhs_list <- list(
-    ENV = env_rhs,
-    ENV_PA = paste(env_rhs, "+", paste(pa_covars, collapse = " + ")),
-    ENV_PA_OWN = paste(env_rhs, "+",
-                       paste(c(pa_covars, own_covars), collapse = " + "))
-  )
-  
-  # Fit models
-  models <- lapply(rhs_list, function(rhs) {
-    glm(as.formula(paste(response, "~", rhs)),
-        data = data,
-        family = binomial)
-  })
-  
-  # Model selection table
-  ms_table <- MuMIn::model.sel(models, rank = "AICc")
-  
-  list(models = models, sel_table = ms_table)
-}
-
-
-RefitTopModel <- function(model_obj) {
-  
-  # Extract selection table
-  ms_table <- model_obj$sel_table
-  models   <- model_obj$models
-  
-  # Determine top model name (Δ = 0)
-  df <- as.data.frame(ms_table)
-  df$Modnames <- rownames(df)
-  top_name <- df$Modnames[df$delta == min(df$delta)][1]
-  
-  # Return the **fitted model object** directly
-  models[[top_name]]
-}
-
-
-
-pa_models <- lapply(names(reference_global_models), function(nm) {
-  response <- strsplit(nm, "_")[[1]][2]
-  
-  FitPAModels(
-    ref_df = reference_global_models[[nm]],
-    response = response,
-    data = data_dir[[nm]]
-  )
-})
-
-names(pa_models) <- names(reference_global_models)
-
-# Extract top Δ=0 models
-top_pa_models <- lapply(pa_models, RefitTopModel)
-names(top_pa_models) <- names(pa_models)
-
-
-# Check VIFs
-vif_results_pa <- lapply(top_pa_models, car::vif)
-
-# Quick summary example
-summary(top_pa_models$DNR_col)
-summary(top_pa_models$DNR_ext)
-summary(top_pa_models$RLL_col)
-summary(top_pa_models$RLL_ext)
-
-
+  theme(legend.position = "bottom",
+        plot.title = element_text(face = "bold"))

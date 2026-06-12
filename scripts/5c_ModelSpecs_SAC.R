@@ -1,8 +1,25 @@
+### WIP NOTES
+# 5.28: Move to Spatial Kernels workflow
+# 6.3: Complete SAC workflow; select covariate term, run models and diagnostics
+# 6.8: Build out max dispersal distance step, i.e. run for multiple km buffers and 
+# provide stats justification for selecting scale of effect (include as supplementary material)
+
+
+### Script: 5a_ModelSpecs_SAC.R
+### Purpose:
+
+
+######################
+### --- SET UP --- ###
+######################
+
+
+### --- LOAD PACKAGES --- ###
+
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(psych, 
                usdm,
                )
-
 
 # Core
 library(dplyr)
@@ -44,35 +61,10 @@ library(mgcViz)
 
 
 
-################################################################################ SPATIAL KERNELS (5.26.26)
-
-#############################
-### --- ASSESSING SAC --- ###
-#############################
-
-### Neighborhood structure 1) conditioned on proximity to Atlas 1-occupied blocks 
-# (i.e. source populations w dispersal potential) and 2) within a species-specific 
-# maximum dispersal radius.
-
-### Steps
-# 1) Data wrangling, spatial specs
-# 2) Pairwise neighborhood structure
-# 3) Pairwise spatial weighting schemes
-# 4) Global SAC testing
-# 5) Block-level SAC metrics / covariates
-
-
-
 ### --- DATA WRANGLING --- ###
 
-# A) Select species
-### Be sure aligned with current pa_glm_models fit
-spp_alpha <- "CAWA"
-spp_name <- "Canada Warbler"
-
-
-# B) Join species occupancy, Atlas block geometry 
-### Native Atlas geometry: Wisconsin Transverse Mercator (EPSG:3071, units = meters)
+# A) Join species occupancy, Atlas block geometry 
+### Native geometry: Wisconsin Transverse Mercator (EPSG:3071, units = meters)
 spp_blocks_sf <- blocks_rll_sf %>% # join data
   left_join(
     mod_data_all %>%
@@ -89,7 +81,7 @@ spp_blocks_sf <- blocks_rll_sf %>% # join data
   )
 
 
-# C) Represent blocks via their centroids 
+# B) Represent blocks via their centroids 
 ### Necessary for pairwise distance comparison
 spp_blocks_sf <- spp_blocks_sf %>% 
   mutate(
@@ -103,24 +95,32 @@ spp_blocks_sf <- spp_blocks_sf %>%
   )
 
 
-# D) Identify block occupancy status in A1
-### i.e. identify potential source populations
+
+
+#############################
+### --- SPATIAL SPECS --- ###
+#############################
+
+### Block relationships and spatial weights are calculated from different subsets
+# among colonization, extirpation responses. These weights and the subsequently
+# derived SAC term must therefore be created for each species with this script.
+
+
+### --- A) Define biological neighborhood structure
+
+# Identify block occupancy status in A1
+### i.e. identify potential source populations for species
 a1_occu <- spp_blocks_sf$det_Atlas1 # vector
 
 
-
-### --- SPATIAL SPECS --- ###
-
-### A) Define biological neighborhood structure
-
 # Species-specific maximum dispersal radius
-### constrain biologically plausible neighborhood extent
+### constrain biologically plausible neighborhood extent 
 max_disp_km <- 20
 max_disp_m  <- max_disp_km * 1000 # EPSG:3071
 
 
 
-### B) Define pairwise, statistical neighborhood structure 
+### --- B) Define pairwise, statistical neighborhood structure 
 
 # Pairwise centroid distances
 dist_matrix <- st_distance(
@@ -158,16 +158,146 @@ all_neighbor_matrix <- (
 
 
 
-### C) Quantify source-neighbor metrics
 
-# Q1) Count-based source-neighbor metrics
+#########################
+### --- SAC MODEL --- ###
+#########################
+
+### --- DEFINE MODEL TERM --- ###
+
+### --- A) Raw Gaussian Kernel Weighting
+### Smoothed distance-decay function tuned by sigma; influence declines continuously
+### w increased distance; decay process less abrupt than IDW.
+### sigma controls rate of decay, i.e. neighborhood smoothness, connectivity
+# small sigma = adjacent populations influence greatly; larger = 
+sigma_km <- 15
+sigma_m  <- sigma_km * 1000
+
+kernel_matrix <- exp(-(dist_matrix^2) / (2 * sigma_m^2))
+kernel_matrix[!neighbor_matrix] <- 0 # only source-neighbors
+
+spp_blocks_sf$kernel_connectivity_raw <- rowSums(kernel_matrix, na.rm = TRUE) 
+
+
+### --- B) Standardized Gaussian Kernel Weighting
+# Maximum Gaussian neighborhood influence, i.e. If all neighboring blocks (within
+# dispersal radius) were A1-occupied, then what would be the max possible spatial 
+# influence on a given block?
+kernel_max_matrix <- exp(-(dist_matrix^2) / (2 * sigma_m^2))
+kernel_max_matrix[!all_neighbor_matrix] <- 0
+
+kernel_max <- rowSums(kernel_max_matrix, na.rm = TRUE)
+
+spp_blocks_sf$kernel_connectivity_std <- ifelse(
+  kernel_max > 0,
+  spp_blocks_sf$kernel_connectivity_raw / kernel_max,
+  0
+)
+
+
+
+
+### --- FIT MODEL --- ###
+
+### --- A) Construct model
+
+### A1) Append z-scaled SAC covariate to data directory/each model covariate pool
+data_dir$RLL_col <- data_dir$RLL_col %>%
+  left_join(
+    spp_blocks_sf %>% st_drop_geometry() %>% 
+      dplyr::select(atlas_block, kernel_connectivity_std),
+    by = "atlas_block"
+  ) %>%
+  mutate(kernel_std = as.numeric(scale()))
+
+data_dir$RLL_ext <- data_dir$RLL_ext %>%
+  left_join(
+    spp_blocks_sf %>% st_drop_geometry() %>% 
+      dplyr::select(atlas_block, kernel_connectivity_std),
+    by = "atlas_block"
+  )
+
+
+
+
+### A2) Update model formula
+## Helper: parse PA model string, add SAC covariate
+ExtractSACFormula <- function(ref_df, response) {
+  
+  if (is.null(ref_df) || nrow(ref_df) == 0) {
+    stop("Empty reference model for response: ", response)
+  }
+  
+  as.formula(
+    paste(response, "~", ref_df$Modnames[1], "+ kernel_std")
+  )
+}
+
+
+sac_glm_models <- lapply(names(pa_glm_models), function(nm) {
+  
+  response <- strsplit(nm, "_")[[1]][2]
+  
+  glm(
+    formula = ExtractSACFormula(pa_glm_models[[nm]], response),
+    data    = data_dir[[nm]],
+    family  = binomial
+  )
+})
+
+names(sac_glm_models) <- names(pa_glm_models)
+
+sac_glm_summaries <- lapply(sac_glm_models, summary)
+sac_glm_summaries
+
+
+
+
+
+
+
+
+### --- EVALUATE MODEL --- ###
+
+
+
+
+
+
+
+
+
+### SCRIPT NOTE: SAC covariate term was derived, assessed, and selected from below workflow.
+
+#############################
+### --- ASSESSING SAC --- ###
+#############################
+
+### Neighborhood structure 1) conditioned on proximity to Atlas 1-occupied blocks 
+# (i.e. source populations w dispersal potential) and 2) within a species-specific 
+# maximum dispersal radius.
+
+### Steps
+# 1) Data wrangling, spatial specs
+# 2) Pairwise neighborhood structure
+# 3) Pairwise spatial weighting schemes
+# 4) Global SAC testing
+# 5) Block-level SAC metrics / covariates
+
+
+
+### --- SPATIAL SPECS --- ###
+
+### --- A) Quantify source-neighbor metrics
+
+# A1) Count-based source-neighbor metrics
 spp_blocks_sf$n_occ_neighbors <- rowSums(
   neighbor_matrix, 
   na.rm = TRUE
 )
 
 
-# Q2) Binary source-neighbor metrics
+# A2) Binary source-neighbor metrics
 ### 1 = at least one A1-occupied source block within dispersal radius; 
 # 0 = none within radius; NOT a pairwise metric
 spp_blocks_sf$source_available <- ifelse(
@@ -177,7 +307,7 @@ spp_blocks_sf$source_available <- ifelse(
 )
 
 
-# Q3) Raw distance-based source-neighbor metrics (km)
+# A3) Raw distance-based source-neighbor metrics (km)
 nearest_occ_dist <- apply(dist_matrix, 1, function(x) { # dist to nearest source-neighbor
   vals <- x[!is.na(x) & x <= max_disp_m & a1_occu == 1]
   if(length(vals) == 0) NA_real_ else min(vals)
@@ -193,12 +323,11 @@ spp_blocks_sf$mean_occ_dist_km    <- mean_occ_dist / 1000
 
 
 
-### Q4) Weighted distance-based source-neighbor metrics
+### A4) Weighted distance-based source-neighbor metrics
 # matrices define how neighboring blocks influence each other spatially, i.e. 
 # pairwise relationships (NOT block-level statistics)
 
-
-# Q4a) Inverse-distance weighting (IDW)
+# A4a) Inverse-distance weighting (IDW)
 ### weight function: w_ij = 1 / d_ij
 ### Nearby, occupied source populations more strongly influence block-level response
 ### than more distance source populations (un-smoothed)
@@ -208,7 +337,7 @@ idw_matrix[!neighbor_matrix] <- 0
 spp_blocks_sf$idw_connectivity <- rowSums(idw_matrix, na.rm = TRUE)
 
 
-# Q4b) Raw Gaussian kernel weighting
+# A4b) Raw Gaussian kernel weighting
 ### Smoothed distance-decay function tuned by sigma; influence declines continuously
 ### w increased distance; decay process less abrupt than IDW.
 ### sigma controls rate of decay, i.e. neighborhood smoothness, connectivity
@@ -221,7 +350,7 @@ kernel_matrix[!neighbor_matrix] <- 0 # only source-neighbors
 
 spp_blocks_sf$kernel_connectivity_raw <- rowSums(kernel_matrix, na.rm = TRUE) 
 
-# Standardized Gaussian kernel weighting Maximum Gaussian neighborhood influence 
+# Standardized Gaussian kernel weighting
 # Maximum Gaussian neighborhood influence, i.e. If all neighboring blocks (within
 # dispersal radius) were A1-occupied, then what would be the max possible spatial 
 # influence on a given block?
@@ -242,8 +371,7 @@ spp_blocks_sf$kernel_connectivity_std <- ifelse(
 ### --- GLOBAL SAC DIAGNOSTICS --- ###
 ### NOT models; spatial structure checks
 
-
-### A) Quantitative diagnostics
+### --- A) Quantitative diagnostics
 
 # A1) Correlations among metrics
 sac_metrics <- spp_blocks_sf %>%
@@ -490,7 +618,7 @@ ggplot(
 
 ### Select representative term/s to include in model as biologically informed covariate
 # representing/modeling population connectivity (i.e. block susceptibility to dispersal, propogule
-# pressure, rescue effects, etc.); NOT a residual/autoregressive type control term
+# pressure, rescue effects, etc.)
 
 ### Used here: kernel_connectivity_std (std gaussian kernel weighting)
 
@@ -759,18 +887,22 @@ MakeCurve <- function(model,
   mf <- model.frame(model)
   vars <- all.vars(formula(model))[-1]
   
-  base_vals <- lapply(vars, function(v) {
-    
-    if (v == focal_var) return(NULL)
-    
-    if (is.numeric(mf[[v]])) {
-      median(mf[[v]], na.rm = TRUE)
-    } else {
-      names(which.max(table(mf[[v]])))
-    }
-  })
+  base_vals <- setNames(
+    lapply(vars, function(v) {
+      
+      if (v == focal_var) return(NULL)
+      
+      if (is.numeric(mf[[v]])) {
+        median(mf[[v]], na.rm = TRUE)
+      } else {
+        names(which.max(table(mf[[v]])))
+      }
+    }),
+    vars
+  )
   
   base_vals <- base_vals[!sapply(base_vals, is.null)]
+
   
   nd <- as.data.frame(base_vals)
   nd <- nd[rep(1, n), ]
@@ -780,7 +912,7 @@ MakeCurve <- function(model,
     max(mf[[focal_var]], na.rm = TRUE),
     length.out = n
   )
-  
+
   pred <- predict(model, newdata = nd, type = "link", se.fit = TRUE)
   
   tibble::tibble(
@@ -917,7 +1049,6 @@ ggplot(
 
 
 # Figure 4: PA, SAC coefficient comparison
-
 coef_df <- bind_rows(
   
   broom::tidy(paonly_models$RLL_col,
@@ -1697,8 +1828,6 @@ ggplot(pair_bins_summary,
 
 
 
-
-
 #### Overall SAC Reduction ###
 # SACRI: SAC reduction index; SACRI = MoransI from fitted model / MoransI from null model
 # ---> how much residual SAC did a covariate term remove?
@@ -1738,942 +1867,3 @@ ggplot(srei_summary,
   ) +
   
   theme_minimal(base_size = 13)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-################################################################################
-################# FOSSILS ######################################################
-################################################################################
-
-
-
-
-################# SMOOTH LATENT SPATIAL PROCESS
-
-### Fit SAC-smoothing GAM and compare fit, residuals with GLM
-
-pa_full_models <- pa_glm_models
-
-
-# Fit GAMs
-spatial_gam_models <- lapply(names(pa_full_models), function(nm) {
-  
-  # Original GLM
-  glm_mod <- pa_full_models[[nm]]
-  
-  # Original formula text
-  base_formula <- formula(glm_mod)
-  
-  # Add spatial smooth
-  gam_formula <- update(
-    base_formula,
-    . ~ . + s(x_km, y_km, k = 30) # k is flexible, controls "wiggle"
-  )
-  
-  gam(
-    formula = gam_formula,
-    data    = data_dir_coords[[nm]],
-    family  = binomial(link = "logit"),
-    method  = "REML"
-  )
-})
-
-names(spatial_gam_models) <- names(pa_full_models)
-
-
-spatial_gam_summaries <- lapply(
-  spatial_gam_models,
-  summary
-)
-
-spatial_gam_summaries
-
-
-
-### Model Comparison
-model_comparison <- lapply(names(pa_full_models), function(nm) {
-  
-  glm_mod <- pa_full_models[[nm]]
-  gam_mod <- spatial_gam_models[[nm]]
-  
-  data.frame(
-    model = c("GLM", "Spatial_GAM"),
-    
-    AIC = c(
-      MuMIn::AICc(glm_mod),
-      MuMIn::AICc(gam_mod)
-    ),
-    
-    deviance_explained = c(
-      1 - glm_mod$deviance / glm_mod$null.deviance,
-      
-      summary(gam_mod)$dev.expl
-    )
-  )
-})
-
-names(model_comparison) <- names(pa_full_models)
-
-model_comparison
-
-
-
-### Residual Comparison
-set.seed(123)
-
-gam_dharma_residuals <- lapply(names(spatial_gam_models), function(nm) {
-  
-  sim <- simulateResiduals(
-    fittedModel = spatial_gam_models[[nm]],
-    plot = FALSE
-  )
-  
-  data.frame(
-    atlas_block = data_dir_coords[[nm]]$atlas_block,
-    x_km = data_dir_coords[[nm]]$x_km,
-    y_km = data_dir_coords[[nm]]$y_km,
-    residual = sim$scaledResiduals,
-    species_model = nm,
-    model_type = "spatial_gam"
-  )
-})
-
-gam_dharma_residuals <- bind_rows(gam_dharma_residuals)
-
-# compare with GLM residuals
-dharma_residuals_compare <- bind_rows(
-  dharma_residuals,
-  gam_dharma_residuals
-)
-
-
-### Semivariograms
-
-semivar_comp_df <- dharma_residuals_compare %>%
-  
-  group_by(species_model, model_type) %>%
-  
-  group_modify(~ {
-    
-    dat <- .x
-    
-    gdf <- sf::st_as_sf(
-      dat,
-      coords = c("x_km", "y_km"),
-      crs = 3071
-    )
-    
-    vgm_obj <- gstat::variogram(
-      residual ~ 1,
-      locations = gdf,
-      cutoff = 300,
-      width = 25
-    )
-    
-    as.data.frame(vgm_obj)
-    
-  }) %>%
-  
-  ungroup()
-
-
-
-### Visualize
-
-### VISUALIZE ###
-
-# Clean labels
-semivar_comp_df <- semivar_comp_df %>%
-  
-  mutate(
-    
-    process = case_when(
-      grepl("_col$", species_model) ~ "Colonization",
-      grepl("_ext$", species_model) ~ "Extirpation"
-    ),
-    
-    model_type_label = case_when(
-      model_type == "true_null"   ~ "True null",
-      model_type == "pa_null"     ~ "PA-only null",
-      model_type == "full"        ~ "Full GLM",
-      model_type == "spatial_gam" ~ "Spatial GAM"
-    )
-  )
-
-
-
-### PLOT ###
-
-ggplot(
-  semivar_comp_df,
-  aes(
-    x = dist,
-    y = gamma,
-    color = model_type_label,
-    group = interaction(model_type_label, species_model)
-  )
-) +
-  
-  geom_line(linewidth = 1.2) +
-  
-  geom_point(size = 2) +
-  
-  facet_wrap(~process) +
-  
-  scale_color_manual(
-    values = c(
-      "True null"    = "grey40",
-      "PA-only null" = "orange",
-      "Full GLM"     = "turquoise4",
-      "Spatial GAM"  = "darkorchid"
-    )
-  ) +
-  
-  labs(
-    title = "Residual Spatial Structure Across Model Types",
-    x = "Distance (km)",
-    y = "Semivariance",
-    color = NULL
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-# Summarize
-
-semivar_comp_summary <- semivar_comp_df %>%
-  
-  group_by(process, model_type_label) %>%
-  
-  summarise(
-    mean_semivariance = mean(gamma, na.rm = TRUE),
-    max_semivariance = max(gamma, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-semivar_comp_summary
-
-
-
-
-
-
-
-
-
-
-
-
-### SPATIAL AUTOCOVARIATE TERM #################################################
-### Using distance-beased weights
-
-### V1
-
-coords_mat <- as.matrix(
-  coords_df[, c("x_km", "y_km")]
-)
-
-# neighbors within 100 km; set ditance
-nb <- dnearneigh(
-  coords_mat,
-  d1 = 0,
-  d2 = 100
-)
-
-
-distances <- nbdists(nb, coords_mat)
-
-inv_dist <- lapply(
-  distances,
-  function(x) 1 / x
-)
-
-
-inv_dist <- lapply(
-  distances,
-  function(x) 1 / (x + 0.001)
-)
-
-
-dat$auto_cov <- lag.listw(
-  lw,
-  dat[[response]],
-  zero.policy = TRUE
-)
-
-
-
-
-
-
-
-## DATA ####################################################### OLD WIP W/ PEARSON'S RES
-
-
-### --- GLOBAL AUTOCORRELATION --- ###
-# --> Is there spatial structure in residuals?
-
-### MORAN'S I ###
-### + kNN sensitivity analysis
-
-k_seq <- c(3, 5, 8, 10, 15, 20, 30)
-
-pa_moran_k <- lapply(names(pa_glm_models), function(nm) {
-  
-  dat <- data_dir_coords[[nm]]
-  res <- pa_residuals[[nm]]
-  coords <- cbind(dat$x_km, dat$y_km)
-  
-  out <- lapply(k_seq, function(k_val) {
-    
-    nb <- knn2nb(knearneigh(coords, k = k_val))
-    lw <- nb2listw(nb, style = "W")
-    
-    test <- moran.test(res, lw)
-    
-    data.frame(
-      model = nm,
-      k = k_val,
-      Moran_I = unname(test$estimate[1]),
-      p_value = test$p.value
-    )
-  })
-  
-  bind_rows(out)
-})
-
-pa_moran_k <- bind_rows(pa_moran_k)
-
-
-
-
-# visualize neighbor-definition sensitivity
-ggplot(pa_moran_k, aes(x = k, y = Moran_I, color = model)) +
-  
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 2) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
-  
-  scale_x_continuous(breaks = k_seq) +
-  
-  scale_color_manual(
-    values = c(
-      "RLL_col" = "turquoise",
-      "RLL_ext" = "tomato"
-    )
-  ) +
-  
-  labs(
-    title = "Moran's I Sensitivity to Neighborhood Size (kNN)",
-    x = "k (number of neighbors)",
-    y = "Moran's I"
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 20, hjust = 1),
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-
-
-
-
-### CORRELOGRAM: BINNED ###
-pa_correlog <- lapply(names(pa_glm_models), function(nm) {
-  
-  dat <- data_dir_coords[[nm]]
-  res <- pa_residuals[[nm]]
-  
-  ncf::correlog(
-    x = dat$x_km,
-    y = dat$y_km,
-    z = res,
-    increment = 50,
-    resamp = 999
-  )
-})
-
-names(pa_correlog) <- names(pa_glm_models)
-
-
-
-correlog_df <- bind_rows(lapply(names(pa_correlog), function(nm) {
-  
-  obj <- pa_correlog[[nm]]
-  
-  data.frame(
-    model    = nm,
-    distance = obj$mean.of.class,
-    moran_I  = obj$correlation,
-    p_value  = obj$p,
-    n_pairs  = obj$n
-  )
-}))
-
-
-
-ggplot(correlog_df, 
-       aes(x = distance, y = moran_I, color = model)) +
-  
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 3) +
-  
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
-  
-  scale_color_manual(
-    values = c(
-      "RLL_col" = "turquoise",
-      "RLL_ext" = "tomato"
-    ),
-    labels = c(
-      "Colonization",
-      "Extirpation"
-    )
-  ) +
-  
-  labs(
-    title = "Binned Spatial Correlogram",
-    x = "Distance (km)",
-    y = "Moran's I",
-    color = NULL
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 20, hjust = 1),
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-
-
-
-
-### CORRELOG: SPLINE ###
-pa_spline <- lapply(names(pa_glm_models), function(nm) {
-  
-  dat <- data_dir_coords[[nm]]
-  res <- pa_residuals[[nm]]
-  
-  ncf::spline.correlog(
-    x = dat$x_km,
-    y = dat$y_km,
-    z = res,
-    resamp = 999
-  )
-})
-
-names(pa_spline) <- names(pa_glm_models)
-
-
-
-spline_df <- bind_rows(lapply(names(pa_spline), function(nm) {
-  
-  obj <- pa_spline[[nm]]
-  
-  # extract safely as vectors
-  dist_vals  <- as.numeric(obj$real$predicted$x)
-  corr_vals  <- as.numeric(obj$real$predicted$y)
-  lower_vals <- as.numeric(obj$boot$boot.summary$predicted$y["0.025", ])
-  upper_vals <- as.numeric(obj$boot$boot.summary$predicted$y["0.975", ])
-  
-  data.frame(
-    model = nm,
-    distance = dist_vals,
-    corr = corr_vals,
-    lower = lower_vals,
-    upper = upper_vals
-  )
-}))
-
-
-# OPT 1: half-decay distance
-### what is distance where corr is mostly gone?
-### half-decay: distance where corr drops to half its max
-half_decay_range <- spline_df %>%
-  group_by(model) %>%
-  summarise(
-    peak_I = max(corr, na.rm = TRUE),
-    target = peak_I / 2,
-    
-    range_km = distance[which.min(abs(corr - target))]
-  )
-
-
-  
-# OPT 2: Effective spatial independence range
-### first distance where CI overlaps 0 for the final time
-zero_range <- spline_df %>%
-  group_by(model) %>%
-  arrange(distance) %>%
-  mutate(
-    non_sig = (lower <= 0 & upper >= 0),
-    was_sig = !non_sig,
-    transition = was_sig & lead(non_sig)
-  ) %>%
-  summarise(
-    range_km = ifelse(any(transition),
-                      distance[which(transition)[1]],
-                      NA)
-  )
-
-
-# Visualization
-ggplot(spline_df, aes(x = distance, y = corr, color = model)) +
-  
-  geom_ribbon(
-    aes(ymin = lower, ymax = upper, fill = model),
-    alpha = 0.2,
-    color = NA
-  ) +
-  
-  geom_line(linewidth = 1.2) +
-  
-  geom_vline(
-    data = half_decay_range,
-    aes(xintercept = range_km, color = "black"),
-    linetype = "dotted",
-    linewidth = 1
-  ) +
-  
-  geom_vline(
-    data = zero_range,
-    aes(xintercept = range_km, color = "green"),
-    linetype = "dashed",
-    linewidth = 1
-  ) +
-  
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  
-  scale_color_manual(values = c(
-    "RLL_col" = "turquoise",
-    "RLL_ext" = "tomato"
-  )) +
-  
-  scale_fill_manual(values = c(
-    "RLL_col" = "turquoise",
-    "RLL_ext" = "tomato"
-  )) +
-  
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 20, hjust = 1),
-    plot.title = element_text(face = "bold")
-  ) +
-  
-  labs(
-    title = "Spline Spatial Correlogram",
-    x = "Distance (km)",
-    y = "Correlation"
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 20, hjust = 1),
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-# Zoomed ggplot
-ggplot(spline_df, aes(x = distance, y = corr, color = model)) +
-  
-  geom_ribbon(
-    aes(ymin = lower, ymax = upper, fill = model),
-    alpha = 0.2,
-    color = NA
-  ) +
-  
-  geom_line(linewidth = 1.2) +
-  
-  geom_vline(
-    data = half_decay_range,
-    aes(xintercept = range_km),
-    linetype = "dotted",
-    linewidth = 1,
-    color = "orchid"
-  ) +
-  
-  geom_vline(
-    data = zero_range,
-    aes(xintercept = range_km),
-    linetype = "dashed",
-    linewidth = 1,
-    color = "springgreen"
-  ) +
-  
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  
-  scale_color_manual(values = c(
-    "RLL_col" = "turquoise",
-    "RLL_ext" = "tomato"
-  )) +
-  
-  scale_fill_manual(values = c(
-    "RLL_col" = "turquoise",
-    "RLL_ext" = "tomato"
-  )) +
-  
-  coord_cartesian(xlim = c(0, 200)) +
-  
-  labs(
-    title = "Spline Spatial Correlogram (0–200 km)",
-    x = "Distance (km)",
-    y = "Correlation"
-  ) +
-  
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 20, hjust = 1),
-    plot.title = element_text(face = "bold")
-  )
-
-
-
-
-
-
-
-
-
-
-
-
-### LISA ###
-
-k <- 6
-
-lisa_list <- lapply(names(pa_glm_models), function(nm) {
-  
-  dat <- data_dir[[nm]]
-  res <- pa_residuals[[nm]]
-  
-  coords <- cbind(dat$lon, dat$lat)
-  
-  knn <- knearneigh(coords, k = k)
-  nb  <- knn2nb(knn)
-  lw  <- nb2listw(nb, style = "W")
-  
-  lisa <- spdep::localmoran(res, lw)
-  
-  data.frame(
-    model = nm,
-    lon   = dat$lon,
-    lat   = dat$lat,
-    residual = res,
-    local_I  = lisa[, 1],
-    p_value  = lisa[, 5]
-  )
-})
-
-
-lisa_df <- do.call(rbind, lisa_list)
-
-
-lagged_res <- lapply(names(pa_glm_models), function(nm) {
-  
-  dat <- data_dir[[nm]]
-  res <- pa_residuals[[nm]]
-  
-  coords <- cbind(dat$lon, dat$lat)
-  
-  knn <- knearneigh(coords, k = k)
-  nb  <- knn2nb(knn)
-  lw  <- nb2listw(nb, style = "W")
-  
-  lag <- lag.listw(lw, res)
-  
-  data.frame(
-    model = nm,
-    lag_residual = lag
-  )
-})
-
-lag_df <- do.call(rbind, lagged_res)
-
-lisa_df$lag_residual <- lag_df$lag_residual
-
-
-lisa_df$cluster <- "Not significant"
-
-sig <- lisa_df$p_value < 0.05
-
-lisa_df$cluster[sig & lisa_df$residual > 0 & lisa_df$lag_residual > 0] <- "High-High"
-lisa_df$cluster[sig & lisa_df$residual < 0 & lisa_df$lag_residual < 0] <- "Low-Low"
-lisa_df$cluster[sig & lisa_df$residual > 0 & lisa_df$lag_residual < 0] <- "High-Low"
-lisa_df$cluster[sig & lisa_df$residual < 0 & lisa_df$lag_residual > 0] <- "Low-High"
-
-
-
-
-ggplot(lisa_df, aes(x = lon, y = lat, fill = cluster)) +
-  
-  geom_point(shape = 21, size = 1.6, color = "transparent") +
-  
-  facet_wrap(~model) +
-  
-  scale_fill_manual(
-    values = c(
-      "High-High" = "#d7191c",
-      "Low-Low"   = "#2c7bb6",
-      "High-Low"  = "#fdae61",
-      "Low-High"  = "#abd9e9",
-      "Not significant" = "grey85"
-    )
-  ) +
-  
-  coord_equal() +
-  theme_void()
-
-
-
-
-
-
-
-
-
-
-
-### AUTOCOVARIATE MODEL TERM ###
-
-# use the same k / neighborhood logic as your Moran + LISA work
-# here we use inverse-distance style autocovariance via autocov_dist()
-
-pa_autocov <- lapply(names(pa_glm_models), function(nm) {
-  
-  dat <- data_dir[[nm]]
-  
-  response <- strsplit(nm, "_")[[1]][2]
-  y <- dat[[response]]
-  
-  coords <- cbind(
-    dat$lon,
-    dat$lat
-  )
-  
-  autocov <- spdep::autocov_dist(
-    y,
-    coords,
-    nbs = 1,
-    type = "inverse",
-    style = "W",
-    zero.policy = TRUE
-  )
-  
-  dat$autocov_pa <- autocov
-  
-  dat
-})
-
-names(pa_autocov) <- names(pa_glm_models)
-
-
-
-pa_glm_models_auto <- lapply(names(pa_autocov), function(nm) {
-  
-  response <- strsplit(nm, "_")[[1]][2]
-  
-  glm(
-    formula = update(
-      ExtractPAFormula(reference_global_models[[nm]], response),
-      . ~ . + autocov_pa
-    ),
-    data = pa_autocov[[nm]],
-    family = binomial
-  )
-})
-
-names(pa_glm_models_auto) <- names(pa_autocov)
-summary(pa_glm_models_auto)
-
-
-
-
-
-### STATISTICAL FILTERS — PA MODEL + SPATIAL AUTOCOVARIATE ###
-
-### predictor set used in final PA + SAC model
-### (base predictors from selected PA model + pa_prop + autocov_pa)
-
-GetPAAutoCovars <- function(model_obj) {
-  
-  # pull predictor names directly from fitted glm
-  vars <- names(coef(model_obj))
-  
-  # remove intercept
-  vars <- vars[vars != "(Intercept)"]
-  
-  vars
-}
-
-
-### VISUALIZE CORRELATIONS INCLUDING AUTOCOVARIATE
-
-pa_auto_corr_results <- lapply(names(pa_glm_models_auto), function(nm) {
-  
-  dat <- pa_autocov[[nm]]
-  
-  covs_use <- GetPAAutoCovars(pa_glm_models_auto[[nm]])
-  
-  VisualizeCorrelations(
-    data  = dat,
-    covs  = covs_use,
-    label = paste(nm, "+ autocov")
-  )
-})
-
-names(pa_auto_corr_results) <- names(pa_glm_models_auto)
-
-
-### NUMERICALLY IDENTIFY HIGH CORRELATIONS
-### especially important for checking autocov_pa inflation
-
-pa_auto_highcorrs <- lapply(names(pa_glm_models_auto), function(nm) {
-  
-  dat <- pa_autocov[[nm]]
-  
-  covs_use <- GetPAAutoCovars(pa_glm_models_auto[[nm]])
-  
-  cat("\n============================\n")
-  cat("High correlations for:", nm, "\n")
-  cat("============================\n")
-  
-  GetHighCorrs(
-    data = dat,
-    covs = covs_use,
-    threshold = 0.7
-  )
-})
-
-names(pa_auto_highcorrs) <- names(pa_glm_models_auto)
-
-
-### VIF CHECK INCLUDING AUTOCOVARIATE
-
-vif_pa_models_auto <- lapply(pa_glm_models_auto, car::vif)
-
-vif_pa_models_auto
-
-
-### Example:
-vif_pa_models_auto[["RLL_col"]]
-vif_pa_models_auto[["RLL_ext"]]
-
-
-
-
-
-
-
-
-
-
-
-
-# MODEL COMPARISON #
-### Check performance of spatial vs non-spatial term model
-AIC(pa_glm_models[["RLL_col"]])
-AIC(pa_glm_models_auto[["RLL_col"]])
-
-summary(pa_glm_models_auto[["RLL_col"]])
-
-
-
-res_auto <- residuals(
-  pa_glm_models_auto[["RLL_col"]],
-  type = "pearson"
-)
-
-dat <- pa_autocov[["RLL_col"]]
-
-coords <- cbind(dat$lon, dat$lat)
-
-knn <- knearneigh(coords, k = 6)
-nb  <- knn2nb(knn)
-lw  <- nb2listw(nb, style = "W")
-
-moran.test(
-  res_auto,
-  lw,
-  zero.policy = TRUE
-)
-
-
-
-# AUC
-pa_auc_auto <- lapply(names(pa_glm_models_auto), function(nm) {
-  
-  model <- pa_glm_models_auto[[nm]]
-  
-  # extract observed response from model frame
-  observed <- model$model[[1]]
-  
-  # predicted probabilities
-  predicted <- predict(model, type = "response")
-  
-  # calculate AUC
-  auc_value <- pROC::auc(observed, predicted)
-  
-  data.frame(
-    model = nm,
-    AUC = as.numeric(auc_value)
-  )
-})
-
-pa_auc_auto <- do.call(rbind, pa_auc_auto)
-pa_auc_auto
-
-
-
-# Pseudo-R2
-pa_r2_auto <- lapply(names(pa_glm_models_auto), function(nm) {
-  
-  model <- pa_glm_models_auto[[nm]]
-  
-  r2_vals <- pscl::pR2(model)
-  
-  data.frame(
-    model = nm,
-    McFadden_R2 = r2_vals["McFadden"]
-  )
-})
-
-pa_r2_auto <- do.call(rbind, pa_r2_auto)
-pa_r2_auto
-
-
-# Combine
-pa_model_metrics_auto <- merge(
-  pa_auc_auto,
-  pa_r2_auto,
-  by = "model"
-)
-
-pa_model_metrics_auto

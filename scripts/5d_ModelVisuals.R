@@ -128,6 +128,41 @@ ggplot() +
   theme_void() +
   labs(title = "Protected Areas in Wisconsin")
 
+# all by Mang_Name 
+ggplot() +
+  geom_sf(
+    data = wipad_sf,
+    aes(fill = Mang_Name),
+    color = NA,
+    alpha = 0.7
+  ) +
+  scale_fill_viridis_d(option = "turbo") +
+  theme_void() +
+  labs(
+    title = "Wisconsin Protected Areas by Managing Agency",
+    fill = "Manager"
+  )
+
+# single Mang_Name
+ggplot() +
+  geom_sf(
+    data = wipad_sf,
+    aes(fill = Mang_Name == "CNTY"),
+    color = NA,
+    alpha = 0.7
+  ) +
+  scale_fill_manual(
+    values = c(
+      "TRUE" = "turquoise",
+      "FALSE" = "grey80"
+    ),
+    labels = c("Other", "County"),
+    name = NULL
+  ) +
+  theme_void() +
+  labs(title = "County-Managed Protected Areas in Wisconsin")
+
+
 
 
 # Protected Area (ownership) #
@@ -241,6 +276,110 @@ ggplot() +
     title = "Wisconsin Protected Areas",
     subtitle = "Colored by GAP Status (1 = Highest Protection)"
   )
+
+
+
+### --- GAP Status Histograms
+summary(covs_raw_rll_df$gap1_prop)
+summary(covs_raw_rll_df$gap2_prop)
+summary(covs_raw_rll_df$gap3_prop)
+summary(covs_raw_rll_df$gap4_prop)
+
+
+# distribution of proportions for each GAP class
+gap_long <- covs_raw_rll_df %>%
+  dplyr::select(gap1_prop, gap2_prop, gap3_prop, gap4_prop) %>%
+  pivot_longer(
+    everything(),
+    names_to = "gap_status",
+    values_to = "proportion"
+  )
+
+ggplot(gap_long,
+       aes(x = proportion)) +
+  geom_histogram(bins = 30,
+                 fill = "grey70",
+                 color = "black") +
+  stat_bin(
+    bins = 30,
+    geom = "text",
+    aes(label = after_stat(count)),
+    vjust = -0.3,
+    size = 3
+  ) +
+  facet_wrap(~ gap_status, scales = "free_y") +
+  labs(
+    x = "Proportion of block",
+    y = "Number of blocks",
+    title = "Distribution of GAP status proportions across WIBBA blocks"
+  ) +
+  theme_bw()
+
+
+
+# dominant GAP status per block
+gap_dominant <- covs_raw_rll_df %>%
+  mutate(
+    dominant_gap = c("GAP1", "GAP2", "GAP3", "GAP4")[
+      max.col(dplyr::select(., gap1_prop, gap2_prop, gap3_prop, gap4_prop))
+    ]
+  )
+
+ggplot(gap_dominant,
+       aes(x = dominant_gap)) +
+  geom_bar(fill = "grey70",
+           color = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.3,
+    size = 4
+  ) +
+  labs(
+    x = "Dominant GAP status",
+    y = "Number of blocks",
+    title = "Dominant GAP status across WIBBA blocks"
+  ) +
+  theme_bw()
+
+
+# GAP statewide
+gap_totals <- covs_raw_rll_df %>%
+  summarise(
+    GAP1 = sum(gap1_prop, na.rm = TRUE),
+    GAP2 = sum(gap2_prop, na.rm = TRUE),
+    GAP3 = sum(gap3_prop, na.rm = TRUE),
+    GAP4 = sum(gap4_prop, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    everything(),
+    names_to = "gap_status",
+    values_to = "total_proportion"
+  )
+
+ggplot(gap_totals,
+       aes(x = gap_status,
+           y = total_proportion)) +
+  geom_col(fill = "grey70",
+           color = "black") +
+  geom_text(
+    aes(label = round(total_proportion, 1)),
+    vjust = -0.3,
+    size = 4
+  ) +
+  labs(
+    x = "GAP status",
+    y = "Summed proportion across all blocks",
+    title = "Relative extent of GAP categories across Wisconsin"
+  ) +
+  theme_bw()
+
+
+
+
+
+
+
 
 
 

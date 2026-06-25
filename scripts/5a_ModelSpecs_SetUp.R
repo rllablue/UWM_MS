@@ -602,12 +602,6 @@ names(vif_results) <- names(mod_dfs_all)
 
 
 ### Create grid data directory of blocks x response subsets for fx lookup
-partition_grid <- expand.grid(
-  response = c("col", "ext"),
-  blocks = "RLL",
-  partition = c("climate", "land"),
-  stringsAsFactors = FALSE
-)
 
 data_dir <- list(
   RLL_col = modcol_rll_z_df,

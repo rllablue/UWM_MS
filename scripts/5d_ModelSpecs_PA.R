@@ -4,8 +4,6 @@
 # terms, e.g. GAP status, PA size, PA connectivity
 
 
-
-
 ### Script: 5a_ModelSpecs_PA.R
 ### Purpose:
 
@@ -20,42 +18,14 @@ if (!require("pacman")) install.packages("pacman")
 pacman::p_load(
   
   # Core
-  dplyr,
-  tidyverse,
-  magrittr,
-  purrr,
-  stringr,
-  readxl,
+  dplyr, tidyverse, magrittr, purrr, stringr, readxl,
   
   # Diagnostics
-  nnet,
-  stats,
-  broom,
-  corrplot,
-  car,
-  performance,
-  DescTools,
-  Metrics,
-  pROC,
-  rsample,
-  lme4,
-  pscl,
-  AICcmodavg,
-  MuMIn,
-  arm,
-  ncf,
-  DHARMa,
-  psych, 
-  usdm,
-  glmmTMB,
+  nnet, stats, broom, corrplot, car, performance, DescTools, Metrics, pROC, rsample,
+  lme4, pscl, AICcmodavg, MuMIn, arm, ncf, DHARMa, psych, usdm, glmmTMB,
   
   # Visualization
-  ggplot2,
-  viridis,
-  gt,
-  sf,
-  gpkg,
-  webshot2
+  ggplot2, viridis, gt, sf, gpkg, webshot2
   
 )
 
@@ -100,6 +70,30 @@ names(pa_glm_models) <- names(global_glm_models)
 
 pa_glm_summaries <- lapply(pa_glm_models, summary)
 pa_glm_summaries
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -457,8 +451,7 @@ ggplot(roc_df, aes(FPR, TPR, color = Model)) +
 ### PA CHARACTERISTICS ###
 ##########################
 
-
-### GAP STATUS #################################################################
+### GAP STATUS ############################################################################################################################ WIP
 
 
 

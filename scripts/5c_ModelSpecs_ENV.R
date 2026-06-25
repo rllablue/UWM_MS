@@ -88,8 +88,14 @@ options(na.action = "na.fail") # required for MuMIn
 # w/ null included. AICc fitting, ranking; extract covars to pass on from "reference" 
 # model (ie. delta = 0) to global model selection steps.
 
+# lookup grid for model response-specific cov subsets
+partition_grid <- expand.grid(
+  response = c("col", "ext"),
+  blocks = "RLL",
+  partition = c("climate", "land"),
+  stringsAsFactors = FALSE
+)
 
-### FUNCTIONS ###
 
 ### Helper: generate all additive predictor combos w/in partitioned covariate sets
 # required = structural effort control variable, PA% as primary effect of interest
@@ -293,20 +299,19 @@ merged_ref_covariates
 
 
 
-### --- STEP 2: ENV MODEL SELECTION --- ###
 
-### Combine climate, land covars lists from partitioned models into single covar list/pool for 
-# new additive mod selection process; find new ref model to carry into interaction step (2B).
 
-merged_ref_covariates <- lapply(
-  merged_ref_covariates,
-  function(covs) unique(c(covs))
-)
+### --- STEP 2: ENV MODEL SELECTION --- #################################################################################### WIP
+
+### Combine climate, land covars lists from partitioned models into single cov pool 
+# per response; carry into bext step to add PA, PA:interactions
+
+
 
 
 
 BuildGlobalRHS <- function(covariates,
-                           forced = effort_covars) {
+                           forced = required_covs) {
   
   covariates <- unique(covariates)
   
@@ -399,7 +404,7 @@ reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
 
 
 
-### --- STEP 3: ENV TOP CANDIDATE MODEL FITTING --- ###
+### --- STEP 3: ENV TOP CANDIDATE MODEL FITTING --- ######################################################################## WIP (CUT)
 
 ### Helper: Pull formula for ref mod
 ExtractRefFormula <- function(ref_df, response) {

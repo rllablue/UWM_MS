@@ -64,20 +64,16 @@ options(na.action = "na.fail") # required for MuMIn
 
 ### Steps ###
 
-# 1) Partitioned AICc Model Selection
+# 1) Partitioned Additive ENV Model Selection
 # Construct, fit, rank separate models partitioning land and climate covariates;
-# carry over best covariates for each set into full ENV models.
+# carry over best covariates for each set into full models.
 
-# 2) Additive ENV Model Selection
-# Construct, fit, rank top models AICc < 2 w/ additive land, climate, effort terms;
+# 2) Full Model Selection
+# Construct, fit, rank top models AICc < 2 w/ additive land, climate, effort, PA terms; interaction terms w PA;
 # extract reference model for each response subset.
 
-# 3) Model Diagnostics
+# 3) Full Model Diagnostics
 # Assess top candidate models for each response for correlations, dispersion, fit, uninformative parameters, etc.
-
-
-
-
 
 
 
@@ -87,6 +83,12 @@ options(na.action = "na.fail") # required for MuMIn
 ### Full, additive candidate model sets for climate and land cover covariates
 # w/ null included. AICc fitting, ranking; extract covars to pass on from "reference" 
 # model (ie. delta = 0) to global model selection steps.
+
+
+effort_covs <- c("sr_diff", "priority_block")
+sac_cov <- "sac_kernel"
+pa_cov <- "pa_prop"
+
 
 # lookup grid for model response-specific cov subsets
 partition_grid <- expand.grid(
@@ -98,26 +100,29 @@ partition_grid <- expand.grid(
 
 
 ### Helper: generate all additive predictor combos w/in partitioned covariate sets
-# required = structural effort control variable, PA% as primary effect of interest
-BuildPartitionedRHS <- function(covariates, required) {
+# required = structural effort- and spatial-control variable
+BuildPartitionedRHS <- function(covariates,
+                                effort_covs,
+                                sac_cov) {
   
   covariates <- unique(covariates)
-  required   <- unique(required)
   
-  optional <- setdiff(covariates, required)
+  forced <- unique(c(effort_covs, sac_cov))
   
-  # Case: required only
-  rhs <- paste(required, collapse = " + ")
+  optional <- setdiff(covariates, forced)
   
-  # Add combinations of optional covariates
+  rhs <- paste(forced, collapse = " + ")
+  
   if (length(optional) > 0) {
+    
     rhs_optional <- unlist(
       lapply(seq_along(optional), function(k) {
+        
         combn(optional, k, FUN = function(x) {
-          paste(c(required, x), collapse = " + ")
+          paste(c(forced, x), collapse = " + ")
         })
+        
       }),
-      
       use.names = FALSE
     )
     
@@ -129,20 +134,18 @@ BuildPartitionedRHS <- function(covariates, required) {
 
 
 ### Helper: Fit, rank partitioned candidate models
-required_covs <- c("sr_diff", "priority_block", "sac_kernel")
-
-
-FitPartitionedModels <- function(response, 
-                                 data, 
-                                 covariates, 
-                                 required = required_covs,
+FitPartitionedModels <- function(response,
+                                 data,
+                                 covariates,
+                                 effort_covs,
+                                 sac_cov,
                                  family = binomial,
                                  include_null = TRUE) {
   
-  # Predictor structure
   rhs_terms <- BuildPartitionedRHS(
-    covariates = covariates,
-    required = required
+    covariates  = covariates,
+    effort_covs = effort_covs,
+    sac_cov     = sac_cov
   )
   
   formulas <- lapply(rhs_terms, function(rhs) {
@@ -151,13 +154,11 @@ FitPartitionedModels <- function(response,
   
   modnames <- rhs_terms
   
-  # Null structure
   if (include_null) {
     formulas <- c(list(as.formula(paste(response, "~ 1"))), formulas)
     modnames <- c("NULL", rhs_terms)
   }
   
-  # Fit models
   models <- lapply(formulas, function(f) {
     glm(f, data = data, family = family)
   })
@@ -179,9 +180,12 @@ partitioned_add_models <- lapply(seq_len(nrow(partition_grid)), function(i) {
     response     = row$response,
     data         = data_dir[[key]],
     covariates   = covar_dir[[row$partition]],
+    effort_covs  = effort_covs,
+    sac_cov      = sac_cov,
     family       = binomial,
     include_null = TRUE
   )
+  
 })
 
 # Names in AICc table
@@ -211,6 +215,128 @@ top_part_models <- lapply(partitioned_add_models, ExtractTopModels, delta = 2)
 
 
 
+
+
+
+
+
+### Helper: tidy table of top models (delta <= 2)
+ExtractTopModelTable <- function(model_sel_obj, delta = 2) {
+  
+  top_mods <- subset(model_sel_obj, delta <= delta)
+  
+  out <- as.data.frame(top_mods)
+  
+  out$Model <- rownames(out)
+  
+  rownames(out) <- NULL
+  
+  out |>
+    dplyr::transmute(
+      Rank      = dplyr::row_number(),
+      Model,
+      Covariates = Model,
+      K         = df,
+      LogLik    = logLik,
+      AICc,
+      Delta_AICc = delta,
+      Weight    = weight
+    )
+}
+
+top_part_tables <- lapply(
+  top_part_models,
+  ExtractTopModelTable,
+  delta = 2
+)
+
+
+
+### Helper: model covs 1/0 matrix
+ExtractModelMatrix <- function(top_tbl,
+                               forced_covs = c("sr_diff",
+                                               "priority_block",
+                                               "sac_kernel")) {
+  
+  cov_lists <- strsplit(top_tbl$Model, " \\+ ")
+  
+  all_covs <- sort(unique(unlist(cov_lists)))
+  all_covs <- setdiff(all_covs, forced_covs)
+  
+  mat <- sapply(all_covs, function(v)
+    sapply(cov_lists, function(x) as.integer(v %in% x))
+  )
+  
+  cbind(
+    top_tbl[, c(
+      "Rank",
+      "K",
+      "LogLik",
+      "AICc",
+      "Delta_AICc",
+      "Weight"
+    )],
+    as.data.frame(mat)
+  )
+}
+
+top_part_matrices <- lapply(
+  top_part_tables,
+  ExtractModelMatrix
+)
+
+top_part_matrices
+
+
+
+### Helper: variable frequency table
+CovariateSupport <- function(top_tbl,
+                             forced_covs = c("sr_diff",
+                                             "priority_block",
+                                             "sac_kernel")) {
+  
+  cov_lists <- strsplit(top_tbl$Model, " \\+ ")
+  
+  all_covs <- sort(unique(unlist(cov_lists)))
+  
+  # remove forced terms if desired
+  all_covs <- setdiff(all_covs, forced_covs)
+  
+  support_tbl <- lapply(all_covs, function(v) {
+    
+    present <- sapply(cov_lists, function(x) v %in% x)
+    
+    data.frame(
+      Covariate       = v,
+      Model_Frequency = sum(present),
+      Weight_Sum      = sum(top_tbl$Weight[present]),
+      stringsAsFactors = FALSE
+    )
+    
+  }) |>
+    dplyr::bind_rows() |>
+    dplyr::arrange(
+      dplyr::desc(Weight_Sum),
+      dplyr::desc(Model_Frequency)
+    )
+  
+  support_tbl
+}
+
+part_cov_support <- lapply(
+  top_part_tables,
+  CovariateSupport
+)
+
+part_cov_support
+
+
+
+
+
+
+
+
 ### Helper: Extract [REFERENCE] model [delta = lowest value]
 ExtractReferenceModel <- function(model_sel_df) {
   
@@ -234,7 +360,8 @@ ExtractReferenceModel <- function(model_sel_df) {
 # Apply: reference model extraction
 reference_part_models <- lapply(top_part_models, ExtractReferenceModel)
 
-### Helper: Extract [REFERENCE] model covariates
+
+### Helper: Extract reference model covariates
 ExtractReferenceCovariates <- function(model_string) {
   
   strsplit(model_string, "\\+")[[1]] %>%
@@ -301,41 +428,38 @@ merged_ref_covariates
 
 
 
+
 ### --- STEP 2: ENV MODEL SELECTION --- #################################################################################### WIP
 
 ### Combine climate, land covars lists from partitioned models into single cov pool 
 # per response; carry into bext step to add PA, PA:interactions
 
-
-
-
-
+### Helper: 
 BuildGlobalRHS <- function(covariates,
-                           forced = required_covs) {
+                           effort_covs,
+                           sac_cov) {
   
   covariates <- unique(covariates)
   
-  # Ensure forced is present
-  forced <- intersect(forced, covariates)
+  forced <- unique(c(effort_covs, sac_cov))
   
-  # Optional = everything except forced
   optional <- setdiff(covariates, forced)
   
-  rhs <- character(0)
+  rhs <- paste(forced, collapse = " + ")
   
-  # Forced-only model
-  rhs <- c(rhs, paste(forced, collapse = " + "))
-  
-  # Forced + subsets of optional
   if (length(optional) > 0) {
+    
     rhs_optional <- unlist(
       lapply(seq_along(optional), function(k) {
+        
         combn(optional, k, FUN = function(x) {
           paste(c(forced, x), collapse = " + ")
         })
+        
       }),
       use.names = FALSE
     )
+    
     rhs <- c(rhs, rhs_optional)
   }
   
@@ -343,21 +467,23 @@ BuildGlobalRHS <- function(covariates,
 }
 
 
-
+### Helper: 
 FitGlobalModels <- function(response,
                             data,
                             covariates,
+                            effort_covs,
+                            sac_cov,
                             family = binomial,
                             include_null = TRUE) {
   
   rhs_terms <- BuildGlobalRHS(
-    covariates = covariates,
-    forced     = effort_covars
+    covariates  = covariates,
+    effort_covs = effort_covs,
+    sac_cov     = sac_cov
   )
   
   models <- list()
   
-  # NULL model
   if (include_null) {
     models[["NULL"]] <- glm(
       as.formula(paste(response, "~ 1")),
@@ -366,17 +492,19 @@ FitGlobalModels <- function(response,
     )
   }
   
-  # Additive models
   for (rhs in rhs_terms) {
+    
     models[[rhs]] <- glm(
       as.formula(paste(response, "~", rhs)),
       data = data,
       family = family
     )
+    
   }
   
-  model.sel(models)
+  MuMIn::model.sel(models, rank = "AICc")
 }
+
 
 
 # Filter out response x block models w 0 covars
@@ -384,15 +512,18 @@ valid_keys <- names(merged_ref_covariates)[
   lengths(merged_ref_covariates) > 0
 ]
 
-
-global_models <- lapply(valid_keys, function(key) { # or lapply(merged_left_covariates){}
+### Apply
+global_models <- lapply(valid_keys, function(key) { 
   
   FitGlobalModels(
-    response   = strsplit(key, "_")[[1]][2],
-    data       = data_dir[[key]],
-    covariates = merged_ref_covariates[[key]],
-    family     = binomial
+    response    = strsplit(key, "_")[[1]][2],
+    data        = data_dir[[key]],
+    covariates  = merged_ref_covariates[[key]],
+    effort_covs = effort_covs,
+    sac_cov     = sac_cov,
+    family      = binomial
   )
+  
 })
 
 names(global_models) <- valid_keys
@@ -404,7 +535,127 @@ reference_global_models <- lapply(top_global_models, ExtractReferenceModel)
 
 
 
-### --- STEP 3: ENV TOP CANDIDATE MODEL FITTING --- ######################################################################## WIP (CUT)
+
+
+
+### Helper: tidy table of top models (delta <= 2)
+ExtractTopModelTable <- function(model_sel_obj, delta = 2) {
+  
+  top_mods <- subset(model_sel_obj, delta <= delta)
+  
+  out <- as.data.frame(top_mods)
+  
+  out$Model <- rownames(out)
+  
+  rownames(out) <- NULL
+  
+  out |>
+    dplyr::transmute(
+      Rank      = dplyr::row_number(),
+      Model,
+      Covariates = Model,
+      K         = df,
+      LogLik    = logLik,
+      AICc,
+      Delta_AICc = delta,
+      Weight    = weight
+    )
+}
+
+top_global_tables <- lapply(
+  top_global_models,
+  ExtractTopModelTable,
+  delta = 2
+)
+
+
+
+### Helper: model covs 1/0 matrix
+ExtractModelMatrix <- function(top_tbl,
+                               forced_covs = c("sr_diff",
+                                               "priority_block",
+                                               "sac_kernel")) {
+  
+  cov_lists <- strsplit(top_tbl$Model, " \\+ ")
+  
+  all_covs <- sort(unique(unlist(cov_lists)))
+  all_covs <- setdiff(all_covs, forced_covs)
+  
+  mat <- sapply(all_covs, function(v)
+    sapply(cov_lists, function(x) as.integer(v %in% x))
+  )
+  
+  cbind(
+    top_tbl[, c(
+      "Rank",
+      "K",
+      "LogLik",
+      "AICc",
+      "Delta_AICc",
+      "Weight"
+    )],
+    as.data.frame(mat)
+  )
+}
+
+top_global_matrices <- lapply(
+  top_global_tables,
+  ExtractModelMatrix
+)
+
+top_global_matrices
+
+
+
+### Helper: variable frequency table
+CovariateSupport <- function(top_tbl,
+                             forced_covs = c("sr_diff",
+                                             "priority_block",
+                                             "sac_kernel")) {
+  
+  cov_lists <- strsplit(top_tbl$Model, " \\+ ")
+  
+  all_covs <- sort(unique(unlist(cov_lists)))
+  
+  # remove forced terms if desired
+  all_covs <- setdiff(all_covs, forced_covs)
+  
+  support_tbl <- lapply(all_covs, function(v) {
+    
+    present <- sapply(cov_lists, function(x) v %in% x)
+    
+    data.frame(
+      Covariate       = v,
+      Model_Frequency = sum(present),
+      Weight_Sum      = sum(top_tbl$Weight[present]),
+      stringsAsFactors = FALSE
+    )
+    
+  }) |>
+    dplyr::bind_rows() |>
+    dplyr::arrange(
+      dplyr::desc(Weight_Sum),
+      dplyr::desc(Model_Frequency)
+    )
+  
+  support_tbl
+}
+
+global_cov_support <- lapply(
+  top_global_tables,
+  CovariateSupport
+)
+
+global_cov_support
+
+
+
+
+
+
+
+
+### --- STEP 3: ENV TOP CANDIDATE MODEL FITTING --- ###
 
 ### Helper: Pull formula for ref mod
 ExtractRefFormula <- function(ref_df, response) {
@@ -436,353 +687,3 @@ names(global_glm_models) <- names(reference_global_models)
 
 global_glm_summaries <- lapply(global_glm_models, summary)
 global_glm_summaries
-
-
-
-
-
-########################
-### MODEL ASSESSMENT ###
-########################
-
-models <- global_glm_models
-
-
-### --- 1: DATA STATS CHECKS --- ###
-
-### --- 1A: Correlated Pairs
-GetCorrelatedPairs <- function(model, cutoff = 0.7, digits = 2) {
-  
-  mm <- model.matrix(model)
-  mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
-  
-  cor_mat <- cor(mm, use = "complete.obs")
-  
-  cor_df <- as.data.frame(as.table(cor_mat))
-  names(cor_df) <- c("var1", "var2", "correlation")
-  
-  cor_df %>%
-    filter(var1 != var2) %>%
-    rowwise() %>%
-    mutate(pair = paste(sort(c(var1, var2)), collapse = "__")) %>%
-    ungroup() %>%
-    distinct(pair, .keep_all = TRUE) %>%
-    dplyr::select(-pair) %>%
-    filter(abs(correlation) >= cutoff) %>%
-    mutate(correlation = round(correlation, digits)) %>%
-    arrange(desc(abs(correlation)))
-}
-
-corr_pairs <- lapply(models, GetCorrelatedPairs, cutoff = 0.7)
-#corr_pairs
-
-
-
-### --- 1B: VIF
-vif_mods <- lapply(models, car::vif)
-#vif_mods
-
-
-
-### --- 2: MODEL PERFORMANCE --- ###
-
-### --- 2A: AUC
-auc_mods <- bind_rows(lapply(names(models), function(nm) {
-  mod <- models[[nm]]
-  
-  data.frame(
-    model = nm,
-    AUC = as.numeric(
-      pROC::auc(
-        mod$model[[1]],
-        predict(mod, type = "response")
-      )
-    )
-  )
-}))
-#auc_mods
-
-
-### --- 2B: McFadden's Pseudo-R2
-r2_mods <- bind_rows(lapply(names(models), function(nm) {
-  r2 <- pscl::pR2(models[[nm]])
-  data.frame(
-    model = nm,
-    McFadden_R2 = r2["McFadden"]
-  )
-}))
-#r2_mods
-
-
-### --- 2C: Over-dispersion
-### disp. ratio approx. = 1 (none); disp. ration > 1.2 (possible); p < 0.05 (sig. over-dispersion)
-overdisp_mods <- bind_rows(lapply(names(models), function(nm) {
-  chk <- performance::check_overdispersion(models[[nm]])
-  
-  tibble(
-    model = nm,
-    dispersion_ratio = chk$dispersion_ratio,
-    p_value = chk$p_value
-  )
-}))
-#overdisp_mods
-
-
-
-### --- 3: PARAMETER INFERENCE --- ###
-
-# Arnold (2010) uninformative parameters:
-# 1) 95% CI overlaps 0
-# 2) LRT/Wald p-value nonsig.
-# 3) delta_AICc negligible with removal of term (approx. < 2)
-
-
-### --- 3A: Coefficient Summary
-coefs_summary <- bind_rows(lapply(names(models), function(nm) {
-  broom::tidy(models[[nm]], conf.int = TRUE) %>%
-    mutate(model = nm)
-}))
-#coefs_summary
-
-
-### --- 3B: Flag Potentially Uninformative Parameters
-# flag parameters where 95% CI overlaps 0, p > 0.05
-uninf_pars <- coefs_summary %>%
-  filter(term != "(Intercept)") %>%
-  mutate(
-    ci_overlaps_zero = conf.low <= 0 & conf.high >= 0,
-    non_significant = p.value > 0.05,
-    potentially_uninformative = ci_overlaps_zero & non_significant
-  ) %>%
-  arrange(model, desc(potentially_uninformative))
-#uninf_pars
-
-
-### --- 3C: Summarize 
-uninf_summary <- uninf_pars %>%
-  group_by(model) %>%
-  summarise(
-    n_predictors = n(),
-    n_uninformative = sum(potentially_uninformative, na.rm = TRUE),
-    pct_uninformative = 100 * n_uninformative / n_predictors,
-    .groups = "drop"
-  )
-#uninf_summary
-
-
-### --- 3D: Likelihood Ratio Tests
-# evaluate whether removing parameter worsens model fit
-lrt_results <- bind_rows(lapply(names(models), function(nm) {
-  drop1(models[[nm]], test = "Chisq") %>%
-    as.data.frame() %>%
-    tibble::rownames_to_column("term") %>%
-    mutate(model = nm)
-}))
-#lrt_results
-
-
-### --- 3E: Visualize Coefficient Estimates
-coefs_summary %>%
-  filter(term != "(Intercept)") %>%
-  ggplot(aes(x = estimate, y = reorder(term, estimate))) +
-  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
-  geom_point(size = 2) +
-  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), width = 0.15) +
-  facet_wrap(~ model, scales = "free_y") +
-  labs(
-    x = "Coefficient Estimate",
-    y = NULL,
-    title = "Global Model Effect Estimates"
-  ) +
-  theme_minimal(base_size = 13)
-
-
-
-### --- 4: RESIDUAL DIAGNOSTICS --- ###
-
-set.seed(123)
-
-resids_dharma <- lapply(models, DHARMa::simulateResiduals, plot = FALSE) # DHARMa std quantile sim residuals
-
-
-### --- 4A: Residual Uniformity
-### Checks whether residuals follow expected uniform distribution;
-# p > 0.05 (acceptable distribution), p < 0.05 (possible model misspecification) 
-resids_uniformity <- bind_rows(lapply(names(resids_dharma), function(nm) {
-  tst <- DHARMa::testUniformity(resids_dharma[[nm]], plot = FALSE)
-  data.frame(model = nm, statistic = tst$statistic, p_value = tst$p.value)
-}))
-#resids_uniformity
-
-
-
-### --- 4C: Residual Dispersion
-### p > 0.05 (dispersion acceptable), p < 0.005 (possible over- or under-dispersion)
-resids_dispersion <- bind_rows(lapply(names(resids_dharma), function(nm) {
-  tst <- DHARMa::testDispersion(resids_dharma[[nm]], plot = FALSE)
-  data.frame(model = nm, statistic = tst$statistic, p_value = tst$p.value)
-}))
-#resids_dispersion
-
-
-### --- 4D: Residual Outlier Test
-resids_outlier <- bind_rows(lapply(names(resids_dharma), function(nm) {
-  tst <- DHARMa::testOutliers(resids_dharma[[nm]], plot = FALSE)
-  
-  tibble(
-    model = nm,
-    outlier_frequency = if (!is.null(tst$estimate)) as.numeric(tst$estimate) else NA_real_,
-    p_value = tst$p.value %||% NA_real_,
-    method = tst$method %||% NA_character_
-  )
-}))
-#resids_outlier
-
-
-
-### --- 4E: Diagnostics Results
-corr_pairs
-vif_mods
-auc_mods
-r2_mods
-overdisp_mods
-coefs_summary
-uninf_pars
-uninf_summary
-lrt_results
-resids_uniformity
-resids_dispersion
-resids_outlier
-
-
-
-### --- 5: Visualizations --- ###
-
-labels <- c(
-  RLL_col = "Colonization (RLL_col)",
-  RLL_ext = "Extirpation (RLL_ext)"
-)
-
-
-### --- 5A: DHARMa resids QQ, pred probs
-
-# Residual summary plots
-par(mfrow = c(1, 2),
-    mar = c(4, 4, 3, 1))
-
-for (nm in names(resids_dharma)) {
-  plot(
-    resids_dharma[[nm]],
-    main = labels[[nm]]
-  )
-}
-
-par(mfrow = c(1, 1))
-
-
-# QQ plots
-par(mfrow = c(1, 2),
-    mar = c(4, 4, 4, 1))
-
-for (nm in names(resids_dharma)) {
-  DHARMa::plotQQunif(
-    resids_dharma[[nm]],
-    main = labels[[nm]]
-  )
-}
-
-par(mfrow = c(1, 1))
-
-
-# Dispersion
-par(mfrow = c(1, 2),
-    mar = c(4, 4, 4, 1))
-
-for (nm in names(resids_dharma)) {
-  DHARMa::testDispersion(
-    resids_dharma[[nm]],
-    plot = TRUE
-  )
-  title(main = labels[[nm]], line = 2)
-}
-
-par(mfrow = c(1, 1))
-
-
-# Outliers
-par(mfrow = c(1, 2),
-    mar = c(4, 4, 4, 1))
-
-for (nm in names(resids_dharma)) {
-  DHARMa::testOutliers(
-    resids_dharma[[nm]],
-    plot = TRUE
-  )
-  title(main = labels[[nm]], line = 2)
-}
-
-par(mfrow = c(1, 1))
-
-
-# Predicted Probabilities
-# histograms
-par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
-
-for (nm in names(models)) {
-  hist(
-    predict(models[[nm]], type = "response"),
-    main = paste("Predicted probs:", nm),
-    xlab = "Probability",
-    breaks = 30
-  )
-}
-
-par(mfrow = c(1, 1))
-
-
-
-### --- 5B: ROC Curves
-pred_probs <- lapply(models, predict, type = "response")
-
-roc_col <- pROC::roc(models$RLL_col$model[[1]], pred_probs$RLL_col)
-roc_ext <- pROC::roc(models$RLL_ext$model[[1]], pred_probs$RLL_ext)
-
-roc_df <- bind_rows(
-  data.frame(
-    FPR = 1 - roc_col$specificities,
-    TPR = roc_col$sensitivities,
-    Model = "Colonization"
-  ),
-  data.frame(
-    FPR = 1 - roc_ext$specificities,
-    TPR = roc_ext$sensitivities,
-    Model = "Extirpation"
-  )
-)
-
-auc_col <- as.numeric(pROC::auc(roc_col))
-auc_ext <- as.numeric(pROC::auc(roc_ext))
-
-
-# plot
-ggplot(roc_df, aes(FPR, TPR, color = Model)) +
-  geom_line(linewidth = 1.2) +
-  geom_abline(linetype = "dashed", color = "grey50") +
-  scale_color_manual(values = c("Colonization" = "#2C7BB6",
-                                "Extirpation" = "#D7191C"),
-                     labels = c(
-                       paste0("Colonization (AUC = ", round(auc_col, 3), ")"),
-                       paste0("Extirpation (AUC = ", round(auc_ext, 3), ")")
-                     )) +
-  labs(
-    title = "ROC Curves for ENV Logistic GLMs",
-    x = "False Positive Rate (1 - Specificity)",
-    y = "True Positive Rate (Sensitivity)",
-    color = NULL
-  ) +
-  coord_equal() +
-  theme_minimal(base_size = 13) +
-  theme(legend.position = "bottom",
-        plot.title = element_text(face = "bold"))
-
-

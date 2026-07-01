@@ -130,8 +130,8 @@ moddata_raw_rll_df <- read.csv("outputs/data/moddata_raw_rll_df.csv") %>%
 
 
 ## SPECIES ##
-spp_alpha <- "BWWA"
-spp_name <- "Blue-winged Warbler"
+spp_alpha <- "CAWA"
+spp_name <- "Canada Warbler"
 
 
 
@@ -324,7 +324,7 @@ climate_covs_all <- c("tmax_38yr", "tmin_38yr", "prcp_38yr", # base year values
 # Inputs
 guildcovs_map <- list(
   
-  forest = c("developed_total_base", "grass_pasture_base",
+  forest = c("developed_total_base", 
              "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
              "wetlands_woody_base", "wetlands_herb_base",
              
@@ -339,7 +339,7 @@ guildcovs_map <- list(
             "developed_total_base", "forest_total_base", 
             "wetlands_woody_base", "wetlands_herb_base",
             
-            "grass_pasture_diff", "wetlands_total_diff"), 
+            "wetlands_total_diff"), 
   
   water = c("water_open_base", "developed_total_base", "grass_pasture_base", 
             "forest_deciduous_base", "forest_mixed_base", "forest_evergreen_base", 
@@ -355,6 +355,7 @@ guildcovs_map <- list(
               "forest_total_diff", "grass_pasture_diff", "wetlands_total_diff") # "water_open_base"
   
 )
+
 
 # lookup table
 sppguild_lookup <- moddata_raw_rll_df %>%

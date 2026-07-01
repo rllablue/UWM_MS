@@ -160,11 +160,11 @@ all_neighbor_matrix <- (
 
 
 
-#########################
-### --- SAC MODEL --- ###
-#########################
+###############################
+### --- SAC MODEL TERM --- ###
+##############################
 
-### --- DEFINE MODEL TERM --- ###
+### --- DEFINE TERM --- ###
 
 ### --- A) Raw Gaussian Kernel Weighting
 ### Smoothed distance-decay function tuned by sigma; influence declines continuously
@@ -198,11 +198,10 @@ spp_blocks_sf$kernel_connectivity_std <- ifelse(
 
 
 
-### --- FIT MODEL --- ###
+### --- PREPARE DATA --- ###
 
-### --- A) Construct model
-
-### A1) Append z-scaled SAC covariate to data directory/each model covariate pool
+### --- A) Add to Modeling Dataframe
+# Append z-scaled SAC covariate to data directory/covariate pool for each model
 data_dir$RLL_col <- data_dir$RLL_col %>%
   left_join(
     spp_blocks_sf %>% st_drop_geometry() %>% 
@@ -228,7 +227,15 @@ data_dir$RLL_ext <- data_dir$RLL_ext %>%
 
 
 
-### A2) Update model formula
+
+
+
+
+
+
+
+
+### A2) Update model formula #####################################################################################################
 sac_glm_models <- lapply(names(pa_glm_models), function(nm) { # or pasub_glm_models
   
   glm(

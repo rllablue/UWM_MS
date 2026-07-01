@@ -25,7 +25,7 @@ pacman::p_load(
   lme4, pscl, AICcmodavg, MuMIn, arm, ncf, DHARMa, psych, usdm, glmmTMB,
   
   # Visualization
-  ggplot2, viridis, gt, sf, gpkg, webshot2
+  ggplot2, viridis, gt, sf, gpkg, webshot2, pbapply
   
 )
 
@@ -41,6 +41,314 @@ options(na.action = "na.fail") # required for MuMIn
 #RLL_col = modcol_rll_z_df,
 #RLL_ext = modext_rll_z_df
 #)
+
+# Land, climate covs
+merged_ref_covariates
+
+
+
+############################################################################################################### A Priori Interaction Power Set
+### BUILD FULL MODEL ###
+########################
+
+effort_covs <- c("sr_diff", "priority_block")
+sac_cov <- "sac_kernel"
+pa_cov <- "pa_prop"
+
+
+
+interaction_covs <- list(
+  
+  RLL_col = c(
+    "sac_kernel",
+    "tmax_38yr",
+    "forest_deciduous_base",
+    "wetlands_woody_base"
+  ),
+  
+  RLL_ext = c(
+    "sac_kernel",
+    "tmax_diff",
+    "forest_deciduous_base",
+    "wetlands_woody_base"
+  )
+  
+)
+
+
+###############################################################
+### BUILD MODEL FORMULAS
+###############################################################
+
+BuildGlobalRHS <- function(
+    env_covs,
+    interaction_covs,
+    effort_covs,
+    sac_cov,
+    pa_cov
+){
+  
+  ##################################################
+  # remove structural terms from env pool
+  ##################################################
+  
+  env_covs <- setdiff(
+    env_covs,
+    c(effort_covs, sac_cov)
+  )
+  
+  required_terms <- c(
+    effort_covs,
+    sac_cov,
+    pa_cov
+  )
+  
+  ##################################################
+  # ENV SUBSETS
+  ##################################################
+  
+  env_subsets <- list(character(0))
+  
+  if(length(env_covs) > 0){
+    env_subsets <- c(
+      env_subsets,
+      unlist(
+        lapply(seq_along(env_covs), function(k){
+          combn(env_covs, k, simplify = FALSE)
+        }),
+        recursive = FALSE
+      )
+    )
+  }
+  
+  ##################################################
+  # INTERACTION POOL (VALIDATE AGAINST AVAILABLE TERMS)
+  ##################################################
+  
+  interaction_covs <- intersect(
+    interaction_covs,
+    c(sac_cov, env_covs)
+  )
+  
+  int_subsets <- list(character(0))
+  
+  if(length(interaction_covs) > 0){
+    int_subsets <- c(
+      int_subsets,
+      unlist(
+        lapply(seq_along(interaction_covs), function(k){
+          combn(interaction_covs, k, simplify = FALSE)
+        }),
+        recursive = FALSE
+      )
+    )
+  }
+  
+  ##################################################
+  # BUILD RHS SET
+  ##################################################
+  
+  rhs <- character()
+  
+  for(env_set in env_subsets){
+    
+    additive_terms <- c(required_terms, env_set)
+    
+    # additive-only model
+    rhs <- c(
+      rhs,
+      paste(additive_terms, collapse = " + ")
+    )
+    
+    # interaction models
+    for(int_set in int_subsets){
+      
+      if(length(int_set) == 0)
+        next
+      
+      rhs <- c(
+        rhs,
+        paste(
+          c(
+            additive_terms,
+            paste0(pa_cov, ":", int_set)
+          ),
+          collapse = " + "
+        )
+      )
+      
+    }
+  }
+  
+  unique(rhs)
+}
+
+
+
+###############################################################
+### FIT MODELS
+###############################################################
+
+FitGlobalModels <- function(
+    response,
+    data,
+    env_covs,
+    interaction_covs,
+    effort_covs,
+    sac_cov,
+    pa_cov,
+    family = binomial,
+    include_null = TRUE
+){
+  
+  rhs_terms <- BuildGlobalRHS(
+    env_covs = env_covs,
+    interaction_covs = interaction_covs,
+    effort_covs = effort_covs,
+    sac_cov = sac_cov,
+    pa_cov = pa_cov
+  )
+  
+  models <- list()
+  
+  if(include_null){
+    models[["NULL"]] <- glm(
+      as.formula(paste(response, "~ 1")),
+      data = data,
+      family = family
+    )
+  }
+  
+  fitted_models <- pbapply::pblapply(
+    rhs_terms,
+    function(rhs){
+      
+      glm(
+        as.formula(paste(response, "~", rhs)),
+        data = data,
+        family = family
+      )
+      
+    }
+  )
+  
+  names(fitted_models) <- rhs_terms
+  
+  models <- c(models, fitted_models)
+  
+  selection <- MuMIn::model.sel(
+    models,
+    rank = "AICc"
+  )
+  
+  list(
+    models = models,
+    selection = selection
+  )
+}
+
+
+
+###############################################################
+### RUN MODELS
+###############################################################
+
+valid_keys <- names(merged_ref_covariates)[
+  lengths(merged_ref_covariates) > 0
+]
+
+
+full_model_sets <- lapply(
+  valid_keys,
+  function(key){
+    
+    response <- strsplit(key, "_")[[1]][2]
+    
+    FitGlobalModels(
+      
+      response = response,
+      
+      data = data_dir[[key]],
+      
+      env_covs = merged_ref_covariates[[key]],
+      
+      interaction_covs = interaction_covs[[key]],
+      
+      effort_covs = effort_covs,
+      
+      sac_cov = sac_cov,
+      
+      pa_cov = pa_cov,
+      
+      family = binomial,
+      
+      include_null = TRUE
+      
+    )
+    
+  }
+)
+
+names(full_model_sets) <- valid_keys
+
+
+
+###############################################################
+### Model Selection
+###############################################################
+
+full_model_selection <- lapply(
+  full_model_sets,
+  `[[`,
+  "selection"
+)
+
+
+top_full_models <- lapply(
+  full_model_selection,
+  ExtractTopModels,
+  delta = 2
+)
+
+
+reference_full_models <- lapply(
+  top_full_models,
+  ExtractReferenceModel
+)
+
+
+
+###############################################################
+### Extract Reference GLMs
+###############################################################
+
+reference_glms <- lapply(
+  names(full_model_sets),
+  function(key){
+    
+    ref_name <- rownames(
+      reference_full_models[[key]]
+    )[1]
+    
+    full_model_sets[[key]]$models[[ref_name]]
+    
+  }
+)
+
+names(reference_glms) <- names(full_model_sets)
+
+
+
+###############################################################
+### Example Outputs
+###############################################################
+
+summary(reference_glms$RLL_col)
+
+summary(reference_glms$RLL_ext)
+
+
+
 
 
 
@@ -70,25 +378,6 @@ names(pa_glm_models) <- names(global_glm_models)
 
 pa_glm_summaries <- lapply(pa_glm_models, summary)
 pa_glm_summaries
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
